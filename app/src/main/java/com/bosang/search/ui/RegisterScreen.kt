@@ -89,7 +89,7 @@ private data class CallRow(
     val count: Int,
 )
 
-private enum class Source(val label: String) { CALLS("통화내역"), CONTACTS("연락처") }
+internal enum class Source(val label: String) { CALLS("통화내역"), CONTACTS("연락처") }
 
 private enum class CallFilter { ALL, NO_CASE, MISSED }
 
@@ -790,7 +790,7 @@ private fun LinkSheet(
 }
 
 @Composable
-private fun SheetLabel(text: String, trailing: (@Composable () -> Unit)? = null) {
+internal fun SheetLabel(text: String, trailing: (@Composable () -> Unit)? = null) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -803,7 +803,7 @@ private fun SheetLabel(text: String, trailing: (@Composable () -> Unit)? = null)
 }
 
 @Composable
-private fun YearChip(year2: String, thisYear: Int, onYear: (String) -> Unit) {
+internal fun YearChip(year2: String, thisYear: Int, onYear: (String) -> Unit) {
     val c = B.c
     var open by remember { mutableStateOf(false) }
     val full = 2000 + (year2.toIntOrNull() ?: (thisYear % 100))
@@ -838,7 +838,7 @@ private fun YearChip(year2: String, thisYear: Int, onYear: (String) -> Unit) {
 
 /** 칸마다 한 자리씩 보이는 사고번호 입력 */
 @Composable
-private fun OtpField(year: String, serial: String, onSerial: (String) -> Unit, focus: FocusRequester) {
+internal fun OtpField(year: String, serial: String, onSerial: (String) -> Unit, focus: FocusRequester) {
     val c = B.c
     var focused by remember { mutableStateOf(false) }
     BCard(
@@ -929,7 +929,7 @@ private fun ExistNotice(store: Store, existing: List<Pair<String, String>>, sele
 }
 
 @Composable
-private fun RoleRow(number: String, name: String?, source: Source?, role: String, onRole: (String) -> Unit) {
+internal fun RoleRow(number: String, name: String?, source: Source?, role: String, onRole: (String) -> Unit) {
     val c = B.c
     val customMode = role == Roles.CUSTOM || (role.isNotEmpty() && role !in Roles.all)
     Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = 15.dp)) {

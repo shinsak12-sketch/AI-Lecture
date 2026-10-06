@@ -42,7 +42,9 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import com.bosang.search.core.CallEntry
 import com.bosang.search.core.PhoneNumbers
+import androidx.compose.foundation.horizontalScroll
 import com.bosang.search.data.CaseSummary
 import com.bosang.search.data.DirEntry
 import com.bosang.search.core.Hangul
@@ -106,6 +108,20 @@ fun HomeScreen(
         if (searching) directory = withContext(Dispatchers.IO) { data.directory() }
     }
 
+    // 첫 화면: 사건별 목록 / 통화기록 (고른 것을 기억)
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val homePrefs = remember { ctx.getSharedPreferences("home", android.content.Context.MODE_PRIVATE) }
+    var mode by rememberSaveable { mutableStateOf(if (homePrefs.getString("mode", "case") == "calls") HomeMode.CALLS else HomeMode.CASES) }
+    fun switchMode(m: HomeMode) {
+        mode = m
+        homePrefs.edit().putString("mode", if (m == HomeMode.CALLS) "calls" else "case").apply()
+    }
+    var callFilter by rememberSaveable { mutableStateOf(CallLogFilter.ALL) }
+    var callLog by remember { mutableStateOf<List<CallEntry>?>(null) }
+    LaunchedEffect(mode, resumeTick) {
+        if (mode == HomeMode.CALLS) callLog = withContext(Dispatchers.IO) { data.calls(400).filter { it.number.isNotEmpty() } }
+    }
+
     val listState = rememberLazyListState()
     Box(Modifier.fillMaxSize()) {
     LazyColumn(
@@ -120,7 +136,7 @@ fun HomeScreen(
                     onQuery = { query = it },
                     caseCount = cases.size,
                     todayCount = todayCount,
-                    tall = !searching && featured != null,
+                    tall = !searching && mode == HomeMode.CASES && featured != null,
                     onRescan = {
                         RecordingIndex.invalidate()
                         refresh++
@@ -130,7 +146,7 @@ fun HomeScreen(
                 )
             }
             // 검색칸이 다시 만들어지면 한글 조합이 끊기므로, 검색 중에도 같은 자리에 둔다
-            val deck = !searching && featured != null
+            val deck = !searching && mode == HomeMode.CASES && featured != null
             Overlap(
                 overlap = if (deck) 56.dp else 0.dp,
                 top = hero,
@@ -150,8 +166,20 @@ fun HomeScreen(
             )
         }
 
+        if (!searching) {
+            item(key = "mode") {
+                SegmentedControl(
+                    options = listOf(Seg("사건별", Ic.folder), Seg("통화기록", Ic.clock)),
+                    selected = mode.ordinal,
+                    onSelect = { switchMode(HomeMode.entries[it]) },
+                    modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = if (mode == HomeMode.CASES && featured != null) 4.dp else 16.dp),
+                )
+            }
+        }
         if (searching) {
             searchResults(query, store, sums, directory, onOpenCase, onOpenPerson)
+        } else if (mode == HomeMode.CALLS) {
+            callLogList(callLog, callFilter, { callFilter = it }, store, onOpenPerson)
         } else if (cases.isEmpty()) {
             item(key = "empty") {
                 EmptyCard(
@@ -572,6 +600,157 @@ private fun androidx.compose.foundation.lazy.LazyListScope.searchResults(
                 body = "사고번호 일부(12345), 전화번호 뒷자리,\n이름이나 초성(ㅎㄱㄷ)으로 찾을 수 있어요.",
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp),
             )
+        }
+    }
+}
+
+private enum class HomeMode { CASES, CALLS }
+
+private enum class CallLogFilter(val label: String) { ALL("전체"), LINKED("사건 있는 번호"), NO_CASE("사건 없는 번호"), MISSED("부재중") }
+
+private fun isMissedCall(type: Int) =
+    type == android.provider.CallLog.Calls.MISSED_TYPE || type == android.provider.CallLog.Calls.REJECTED_TYPE
+
+/** 같은 날 같은 번호와 연달아 한 통화는 한 줄로 (폰 기본 통화기록처럼) */
+private class CallGroup(val last: CallEntry, val count: Int)
+
+private fun groupCalls(calls: List<CallEntry>): List<CallGroup> {
+    val out = ArrayList<CallGroup>()
+    var head: CallEntry? = null
+    var n = 0
+    for (c in calls) {
+        val h = head
+        if (h != null && h.number == c.number && Fmt.dayKey(h.timeMillis) == Fmt.dayKey(c.timeMillis) &&
+            isMissedCall(h.type) == isMissedCall(c.type)
+        ) {
+            n++
+        } else {
+            if (h != null) out.add(CallGroup(h, n))
+            head = c
+            n = 1
+        }
+    }
+    head?.let { out.add(CallGroup(it, n)) }
+    return out
+}
+
+/** 홈 통화기록: 날짜별로 묶고, 번호를 누르면 그 번호의 기록 화면 */
+private fun androidx.compose.foundation.lazy.LazyListScope.callLogList(
+    calls: List<CallEntry>?,
+    filter: CallLogFilter,
+    onFilter: (CallLogFilter) -> Unit,
+    store: Store,
+    onOpenPerson: (String) -> Unit,
+) {
+    item(key = "cl-filter") {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(androidx.compose.foundation.rememberScrollState())
+                .padding(start = 16.dp, end = 16.dp, top = 14.dp, bottom = 4.dp),
+        ) {
+            CallLogFilter.entries.forEach { f -> FilterPill(f.label, f == filter) { onFilter(f) } }
+        }
+    }
+    if (calls == null) {
+        item(key = "cl-loading") { Loading("통화기록을 불러오는 중") }
+        return
+    }
+    val shown = calls.filter { c ->
+        when (filter) {
+            CallLogFilter.ALL -> true
+            CallLogFilter.LINKED -> store.linksForNumber(c.number).isNotEmpty()
+            CallLogFilter.NO_CASE -> store.linksForNumber(c.number).isEmpty()
+            CallLogFilter.MISSED -> isMissedCall(c.type)
+        }
+    }
+    if (shown.isEmpty()) {
+        item(key = "cl-empty") {
+            EmptyCard(
+                icon = Ic.clock,
+                title = if (filter == CallLogFilter.ALL) "통화기록이 없어요" else "해당하는 통화가 없어요",
+                body = if (filter == CallLogFilter.ALL) "통화기록 권한이 꺼져 있으면 설정에서 켜 주세요." else "다른 분류를 골라 보세요.",
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp),
+            )
+        }
+        return
+    }
+    groupCalls(shown).groupBy { Fmt.dayKey(it.last.timeMillis) }.forEach { (day, groups) ->
+        item(key = "cl-d-$day") {
+            Text(
+                Fmt.dayLabel(groups.first().last.timeMillis),
+                style = ts(13f, W7),
+                color = B.c.ink2,
+                modifier = Modifier.padding(start = 22.dp, end = 22.dp, top = 18.dp, bottom = 8.dp),
+            )
+        }
+        itemsIndexed(groups, key = { _, g -> "cl-${g.last.number}-${g.last.timeMillis}" }) { i, g ->
+            CardSegment(first = i == 0, last = i == groups.lastIndex, modifier = Modifier.padding(horizontal = 16.dp)) {
+                CallLogLine(store, g) { onOpenPerson(g.last.number) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CallLogLine(store: Store, g: CallGroup, onClick: () -> Unit) {
+    val c = B.c
+    val call = g.last
+    val name = store.nameOf(call.number) ?: call.name?.takeIf { it.isNotBlank() }
+    val links = store.linksForNumber(call.number)
+    val missed = isMissedCall(call.type)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .press(scale = 0.98f, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+    ) {
+        Avatar(name, call.number, 42.dp)
+        Spacer(Modifier.width(13.dp))
+        Column(Modifier.weight(1f)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    name ?: PhoneNumbers.format(call.number),
+                    style = ts(15.5f, W7, num = name == null),
+                    color = if (missed) c.rec else c.ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (g.count > 1) {
+                    Text(" (${g.count})", style = ts(14f, W6, num = true), color = c.ink3)
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
+                if (missed) {
+                    Icon(Ic.missed, null, tint = c.rec, modifier = Modifier.size(13.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(if (call.type == android.provider.CallLog.Calls.REJECTED_TYPE) "거절" else "부재중", style = ts(13f, W6), color = c.rec)
+                } else {
+                    val incoming = call.type == android.provider.CallLog.Calls.INCOMING_TYPE
+                    Icon(if (incoming) Ic.incoming else Ic.outgoing, null, tint = c.ink2, modifier = Modifier.size(13.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        listOfNotNull(
+                            if (incoming) "받은 전화" else "건 전화",
+                            call.durationSec.takeIf { it > 0 }?.let { Fmt.durationKo(it * 1000) },
+                        ).joinToString(" · "),
+                        style = ts(13f, W4, num = true),
+                        color = c.ink2,
+                        maxLines = 1,
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.width(8.dp))
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(Fmt.time(call.timeMillis), style = ts(12.5f, W6, num = true), color = c.ink3)
+            when {
+                links.size == 1 -> GrayTag("${links.first().caseNo} ${links.first().role}")
+                links.size > 1 -> GrayTag("사건 ${links.size}")
+            }
         }
     }
 }

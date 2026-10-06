@@ -15,9 +15,8 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * 통화 상태를 따라가며
- * - 통화가 시작되면 화면 위에 사건 정보(사건 없는 번호는 작은 동그라미)를 띄우고
- * - 통화가 끝나면 "특이사항 남기기" 창을 띄운다.
+ * 통화 상태를 따라가며 통화가 끝나면 "사건에 연결 / 특이사항" 창을 띄운다.
+ * (통화 중 창은 기기마다 막혀서 빼고, 통화 중에는 번호만 기억해 둔다)
  *
  * 통화 끝은 두 길로 안다: ① 통화 상태(알림·직접 구독) ② 통화기록에 새 줄이 생김.
  * 어느 쪽이 먼저 오든 같은 통화로는 창을 한 번만 띄운다.
@@ -78,15 +77,10 @@ object CallWatcher {
                 CallOverlay.hideAfter(ctx)
                 val who = n ?: ringing ?: dialHint(ctx)
                 if (who != null) prefs(ctx).edit().putString("who", who).apply()
-                if (who != null && who != active) {
-                    active = who
-                    CallOverlay.showBubble(ctx, who)
-                    log(ctx, "통화 중 창 · " + Store.get(ctx).displayName(who))
-                }
+                if (who != null) active = who
                 done()
             }
             TelephonyManager.EXTRA_STATE_IDLE -> {
-                CallOverlay.hideBubble(ctx)
                 val at = offhookAt(ctx)
                 if (at == 0L) {
                     ringing = null

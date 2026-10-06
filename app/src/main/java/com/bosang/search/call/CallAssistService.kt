@@ -112,7 +112,7 @@ class CallAssistService : Service() {
         if (nm.getNotificationChannel(CHANNEL) == null) {
             nm.createNotificationChannel(
                 NotificationChannel(CHANNEL, "통화 도우미", NotificationManager.IMPORTANCE_MIN).apply {
-                    description = "통화 중 사건 정보, 통화 후 특이사항 창을 띄우려고 켜 둡니다"
+                    description = "통화가 끝나면 사건 연결 · 특이사항 창을 띄우려고 켜 둡니다"
                     setShowBadge(false)
                 },
             )
@@ -126,7 +126,7 @@ class CallAssistService : Service() {
         val n: Notification = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("통화 도우미 켜짐")
-            .setContentText("사건 번호와 통화하면 정보를 띄우고, 끝나면 특이사항을 물어봐요")
+            .setContentText("통화가 끝나면 사건 연결 · 특이사항을 물어봐요")
             .setOngoing(true)
             .setSilent(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)

@@ -97,7 +97,7 @@ fun PersonScreen(
     var refresh by remember { mutableIntStateOf(0) }
     LaunchedEffect(number, resumeTick, refresh) {
         // 문자 · 통화는 바로, 통화녹음은 뒤에서
-        launch { sms = Records.sms(numbers, data) }
+        launch { sms = Records.sms(numbers, data, !store.showNotices()) }
         launch { calls = Records.calls(numbers, data) }
         RecordingIndex.peek()?.let { recs = Records.recs(numbers, it) }
         val index = RecordingIndex.get(data, store)
@@ -108,7 +108,7 @@ fun PersonScreen(
         summaries = Summaries.summarize(base, RecordingIndex.peek())
         summaries = Summaries.summarize(base, RecordingIndex.get(data, store))
     }
-    var kind by remember { mutableStateOf(Kind.SMS) }
+    var kind by remember { mutableStateOf(Kind.CALL) }
     val callItems = remember(calls, recs) { calls?.let { Records.callItems(it, recs) } }
     val issues = remember(ver, number) { store.issuesForNumber(number) }
     val issueIdx = remember(issues) { issueIndex(issues) }
@@ -241,8 +241,8 @@ fun PersonScreen(
           Column {
             KindTabs(
                 selected = kind,
-                counts = mapOf(Kind.SMS to sms?.size, Kind.REC to recs?.size, Kind.CALL to callItems?.size),
-                kinds = listOf(Kind.SMS, Kind.REC, Kind.CALL),
+                counts = mapOf(Kind.CALL to callItems?.size, Kind.SMS to sms?.size, Kind.REC to recs?.size),
+                kinds = listOf(Kind.CALL, Kind.SMS, Kind.REC),
                 onSelect = { kind = it },
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp),
             )

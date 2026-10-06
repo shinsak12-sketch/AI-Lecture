@@ -111,8 +111,12 @@ object RecordingIndex {
 
 /** 문자 · 통화 · 녹음을 따로 불러온다 (문자와 통화는 빠르고, 녹음은 오래 걸릴 수 있음) */
 object Records {
-    suspend fun sms(numbers: Set<String>, data: PhoneData): List<TimelineItem.Sms> = withContext(Dispatchers.IO) {
-        numbers.flatMap { data.sms(it) + data.mms(it) }.sortedByDescending { it.timeMillis }.map { TimelineItem.Sms(it) }
+    /** hideNotices: 캐치콜 · 매너콜 같은 통화 알림 문자는 뺌 */
+    suspend fun sms(numbers: Set<String>, data: PhoneData, hideNotices: Boolean = true): List<TimelineItem.Sms> = withContext(Dispatchers.IO) {
+        numbers.flatMap { data.sms(it) + data.mms(it) }
+            .filter { !hideNotices || it.images.isNotEmpty() || !com.bosang.search.core.SmsFilter.isCallNotice(it.body) }
+            .sortedByDescending { it.timeMillis }
+            .map { TimelineItem.Sms(it) }
     }
 
     suspend fun calls(numbers: Set<String>, data: PhoneData): List<CallEntry> = withContext(Dispatchers.IO) {

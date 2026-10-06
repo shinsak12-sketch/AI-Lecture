@@ -118,7 +118,7 @@ fun CaseScreen(
     var refresh by remember { mutableIntStateOf(0) }
     LaunchedEffect(numbers, resumeTick, refresh) {
         // 문자 · 통화는 바로, 통화녹음은 뒤에서 (이전 결과가 있으면 먼저 보여줌)
-        launch { sms = Records.sms(numbers, data) }
+        launch { sms = Records.sms(numbers, data, !store.showNotices()) }
         launch { calls = Records.calls(numbers, data) }
         RecordingIndex.peek()?.let { recs = Records.recs(numbers, it) }
         val index = RecordingIndex.get(data, store)
@@ -151,7 +151,7 @@ fun CaseScreen(
     val imagePerm = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE
     val albumPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { onAlbum() }
 
-    var kind by rememberSaveable { mutableStateOf(Kind.SMS) }
+    var kind by rememberSaveable { mutableStateOf(Kind.CALL) }
     var who by remember { mutableStateOf<String?>(null) }
     var options by remember { mutableStateOf<CaseLink?>(null) }
     var editing by remember { mutableStateOf<CaseLink?>(null) }
@@ -171,9 +171,9 @@ fun CaseScreen(
     val withIssues = shownAll?.count { attachedIssues(it, issueIdx).isNotEmpty() } ?: 0
     val shown = if (onlyIssues) shownAll?.filter { attachedIssues(it, issueIdx).isNotEmpty() } else shownAll
     val counts = mapOf(
+        Kind.CALL to callItems?.forWho()?.size,
         Kind.SMS to sms?.forWho()?.size,
         Kind.REC to recs?.forWho()?.size,
-        Kind.CALL to callItems?.forWho()?.size,
         Kind.PHOTO to photos.size,
     )
     val lastContact = listOfNotNull(
@@ -270,11 +270,11 @@ fun CaseScreen(
                             .fillMaxWidth(),
                     ) {
                         Row(Modifier.padding(vertical = 14.dp, horizontal = 6.dp)) {
+                            Stat(Ic.phone, c.ink2, c.chip, calls?.size, "통화", Modifier.weight(1f)) { kind = Kind.CALL }
+                            StatDivider()
                             Stat(Ic.msg, c.brand, c.brandTint, sms?.size, "문자", Modifier.weight(1f)) { kind = Kind.SMS }
                             StatDivider()
-                            Stat(Ic.wave, c.rec, c.recTint, recs?.size, "통화녹음", Modifier.weight(1f)) { kind = Kind.REC }
-                            StatDivider()
-                            Stat(Ic.phone, c.ink2, c.chip, calls?.size, "통화", Modifier.weight(1f)) { kind = Kind.CALL }
+                            Stat(Ic.wave, c.rec, c.recTint, recs?.size, "녹취", Modifier.weight(1f)) { kind = Kind.REC }
                         }
                     }
                 },

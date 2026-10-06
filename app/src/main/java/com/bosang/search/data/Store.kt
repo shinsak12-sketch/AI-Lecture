@@ -40,6 +40,7 @@ class Store private constructor(private val file: File) {
     private val issues = mutableListOf<Issue>()
     private val photos = mutableListOf<CasePhoto>()
     private var callAssistOn = false
+    private var showNoticesOn = false
     private val quietNumbers = mutableSetOf<String>()
 
     // ---------- 조회 ----------
@@ -125,6 +126,14 @@ class Store private constructor(private val file: File) {
     }
 
     // ---------- 설정 ----------
+    /** 캐치콜 · 매너콜 같은 통화 알림 문자도 보일지 (기본: 숨김) */
+    @Synchronized fun showNotices(): Boolean = showNoticesOn
+
+    fun setShowNotices(on: Boolean) {
+        synchronized(this) { showNoticesOn = on }
+        changed()
+    }
+
     @Synchronized fun callAssist(): Boolean = callAssistOn
 
     fun setCallAssist(on: Boolean) {
@@ -244,7 +253,7 @@ class Store private constructor(private val file: File) {
         root.put("recent", JSONArray(recent))
         root.put("issues", JSONArray().apply { issues.forEach { put(it.toJson()) } })
         root.put("photos", JSONArray().apply { photos.forEach { put(it.toJson()) } })
-        root.put("prefs", JSONObject().put("callAssist", callAssistOn).put("quiet", JSONArray(quietNumbers.toList())))
+        root.put("prefs", JSONObject().put("callAssist", callAssistOn).put("notices", showNoticesOn).put("quiet", JSONArray(quietNumbers.toList())))
         val tmp = File(file.parentFile, file.name + ".tmp")
         tmp.writeText(root.toString())
         if (!tmp.renameTo(file)) {
@@ -281,6 +290,7 @@ class Store private constructor(private val file: File) {
                 for (i in 0 until a.length()) runCatching { CasePhoto.fromJson(a.getJSONObject(i)) }.getOrNull()?.let { photos.add(it) }
             }
             callAssistOn = root.optJSONObject("prefs")?.optBoolean("callAssist") ?: false
+            showNoticesOn = root.optJSONObject("prefs")?.optBoolean("notices") ?: false
             root.optJSONObject("prefs")?.optJSONArray("quiet")?.let { a -> for (i in 0 until a.length()) quietNumbers.add(a.getString(i)) }
         } catch (e: Exception) {
             // 파일이 깨졌으면 백업해 두고 빈 상태로 시작

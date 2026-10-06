@@ -203,3 +203,22 @@ class MoneyTest {
         assertEquals("1,240,000", Money.comma(1_240_000))
     }
 }
+
+class SmsFilterTest {
+    @Test fun 통화알림문자는_걸러냄() {
+        assertTrue(SmsFilter.isCallNotice("[Web발신]\n[캐치콜] 010-1234-5678님이 10/06 14:20에 전화하셨습니다."))
+        assertTrue(SmsFilter.isCallNotice("[매너콜] 010-1234-5678 고객님께서 전화를 거셨습니다."))
+        assertTrue(SmsFilter.isCallNotice("콜키퍼 알림: 14:05 부재중 1건"))
+        assertTrue(SmsFilter.isCallNotice("[통화가능알림] 지금 통화가 가능합니다"))
+        assertTrue(SmsFilter.isCallNotice("홍길동님이 전화를 거셨습니다"))
+        assertTrue(SmsFilter.isCallNotice("10월6일 14:20 전화하셨습니다"))
+    }
+
+    @Test fun 사람이_쓴_문자는_그대로() {
+        assertFalse(SmsFilter.isCallNotice("견적서 사진 다시 보내드릴게요. 범퍼 쪽이 잘 안 나왔네요."))
+        assertFalse(SmsFilter.isCallNotice("아까 전화 못 받아서요 2시 이후에 통화 가능할까요?"))
+        assertFalse(SmsFilter.isCallNotice("14:30에 정비소 도착 예정입니다"))
+        assertFalse(SmsFilter.isCallNotice(""))
+    }
+}
+

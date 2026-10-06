@@ -44,8 +44,8 @@ import com.bosang.search.core.MatchMethod
 import com.bosang.search.data.Player
 import com.bosang.search.data.TimelineItem
 
-/** 문자 · 통화녹음 · 통화를 나눠서 본다. 문자가 기본 (가장 빨리 뜸) */
-enum class Kind(val label: String) { SMS("문자"), REC("녹음"), CALL("통화"), PHOTO("사진") }
+/** 통화 · 문자 · 녹취 · 사진을 나눠서 본다. 통화가 기본 */
+enum class Kind(val label: String) { CALL("통화"), SMS("문자"), REC("녹취"), PHOTO("사진") }
 
 /** 종류 탭: 개수, 찾는 중이면 작은 원 */
 @Composable

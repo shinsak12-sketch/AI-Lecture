@@ -82,6 +82,16 @@
             android:theme="@style/Theme.BosangSearch.Popup"
             android:windowSoftInputMode="adjustResize|stateVisible" />
 
+        <!-- 통화 끝난 뒤 [예] → 사고번호 · 관계 · 특이사항 고르는 작은 창 -->
+        <activity
+            android:name=".call.PostCallActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity=".postcall"
+            android:theme="@style/Theme.BosangSearch.Popup"
+            android:windowSoftInputMode="adjustResize" />
+
         <!-- 위젯 줄의 버튼(전화·문자·열기)을 받아 넘기기만 하는 빈 화면 -->
         <activity
             android:name=".widget.WidgetRouter"

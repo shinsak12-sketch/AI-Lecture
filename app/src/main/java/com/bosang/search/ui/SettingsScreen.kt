@@ -117,8 +117,8 @@ fun SettingsScreen(store: Store, data: PhoneData, resumeTick: Int) {
         BCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
             SettingRow(
                 icon = Ic.phone, fg = c.brand, bg = c.brandTint,
-                title = "통화 중 · 통화 후 도우미",
-                sub = "사건 번호와 통화하면 화면 위에 사건 정보, 끝나면 특이사항 남기기",
+                title = "통화 끝난 뒤 도우미",
+                sub = "통화가 끝나면 사건에 연결할지, 특이사항이 있었는지 물어봐요",
                 trailing = { Toggle(assistOn) },
                 onClick = {
                     val on = !assistOn
@@ -210,11 +210,23 @@ fun SettingsScreen(store: Store, data: PhoneData, resumeTick: Int) {
             }
         }
         Text(
-            "녹음은 삼성 전화 앱이 그대로 해요. 이 앱은 통화 화면 위에 정보만 띄워요.",
+            "녹음은 삼성 전화 앱이 그대로 해요. 이 앱은 통화가 끝난 뒤 작은 창만 띄워요.",
             style = ts(12f, W6),
             color = c.ink3,
             modifier = Modifier.padding(start = 22.dp, end = 22.dp, top = 8.dp),
         )
+
+        Group("문자")
+        BCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
+            val hide = !store.showNotices()
+            SettingRow(
+                icon = Ic.msg, fg = c.brand, bg = c.brandTint,
+                title = "통화 알림 문자 숨기기",
+                sub = "캐치콜 · 매너콜 · 콜키퍼처럼 '전화하셨습니다'만 있는 문자는 목록에서 빼요",
+                trailing = { Toggle(hide) },
+                onClick = { store.setShowNotices(hide) },
+            )
+        }
 
         Group("통화녹음")
         BCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {

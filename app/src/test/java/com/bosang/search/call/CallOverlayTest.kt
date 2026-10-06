@@ -8,7 +8,10 @@ import androidx.test.core.app.ApplicationProvider
 import com.bosang.search.core.CallEntry
 import com.bosang.search.data.Store
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -33,7 +36,6 @@ class CallOverlayTest {
 
     @After fun tearDown() {
         CallOverlay.hideAfter(ctx)
-        CallOverlay.hideBubble(ctx)
         idle()
     }
 
@@ -47,39 +49,60 @@ class CallOverlayTest {
         assertFalse(CallOverlay.afterShowing())
     }
 
-    @Test fun 사건번호와_통화하면_말풍선_끝나면_닫힘() {
+    @Test fun 통화중에는_아무창도_안뜬다() {
         val store = Store.get(ctx)
         store.upsert("26-00012345", listOf(Triple(number, "피보험자", "홍길동")))
         store.setCallAssist(true)
         CallWatcher.onState(ctx, TelephonyManager.EXTRA_STATE_RINGING, number) {}
         CallWatcher.onState(ctx, TelephonyManager.EXTRA_STATE_OFFHOOK, number) {}
         idle()
-        assertTrue(CallOverlay.bubbleShowing())
+        assertFalse(CallOverlay.afterShowing())
         CallWatcher.onState(ctx, TelephonyManager.EXTRA_STATE_IDLE, null) {}
         idle()
-        assertFalse(CallOverlay.bubbleShowing())
     }
 
-    @Test fun 사건없는번호도_통화중_작은동그라미() {
-        Store.get(ctx).setCallAssist(true)
-        CallWatcher.onState(ctx, TelephonyManager.EXTRA_STATE_OFFHOOK, "01099990000") {}
+    @Test fun 끝난뒤창에서_예를_누르면_연결창() {
+        val call = CallEntry("01055556666", "김영희", System.currentTimeMillis() - 60_000, 95, CallLog.Calls.INCOMING_TYPE)
+        CallOverlay.showAfter(ctx, call, force = true)
         idle()
-        assertTrue(CallOverlay.bubbleShowing())
-        CallWatcher.onState(ctx, TelephonyManager.EXTRA_STATE_IDLE, null) {}
+        val root = CallOverlay.afterView()
+        assertNotNull(root)
+        assertNotNull(findText(root!!, "이 통화를 사건에 연결할까요?"))
+        findText(root, "예")!!.performClick()
         idle()
-        assertFalse(CallOverlay.bubbleShowing())
+        assertFalse(CallOverlay.afterShowing())
+        val next = shadowOf(ctx as android.app.Application).nextStartedActivity
+        assertEquals(PostCallActivity::class.java.name, next.component?.className)
+        assertEquals("01055556666", next.getStringExtra("number"))
+        assertEquals(95_000L, next.getLongExtra("len", 0L))
     }
 
-    @Test fun 내가건전화_번호가_안와도_앱에서_건번호로_말풍선() {
-        val store = Store.get(ctx)
-        store.upsert("26-00077777", listOf(Triple("01033334444", "피해자", "박철수")))
-        store.setCallAssist(true)
-        CallWatcher.rememberDial(ctx, "010-3333-4444")
-        CallWatcher.onState(ctx, TelephonyManager.EXTRA_STATE_OFFHOOK, null, "직접")
+    @Test fun 끝난뒤창에서_아니오는_그냥_닫힘() {
+        val call = CallEntry("01055557777", null, System.currentTimeMillis() - 60_000, 30, CallLog.Calls.OUTGOING_TYPE)
+        CallOverlay.showAfter(ctx, call, force = true)
         idle()
-        assertTrue(CallOverlay.bubbleShowing())
-        CallWatcher.onState(ctx, TelephonyManager.EXTRA_STATE_IDLE, null, "직접")
+        findText(CallOverlay.afterView()!!, "아니오")!!.performClick()
         idle()
+        assertFalse(CallOverlay.afterShowing())
+        assertNull(shadowOf(ctx as android.app.Application).nextStartedActivity)
+    }
+
+    @Test fun 사건있는번호는_특이사항을_묻는다() {
+        Store.get(ctx).upsert("26-00088888", listOf(Triple("01044445555", "피해자", "이순신")))
+        val call = CallEntry("01044445555", null, System.currentTimeMillis() - 60_000, 61, CallLog.Calls.INCOMING_TYPE)
+        CallOverlay.showAfter(ctx, call, force = true)
+        idle()
+        val root = CallOverlay.afterView()!!
+        assertNotNull(findText(root, "특이사항이 있었나요?"))
+        assertNull(findText(root, "이 통화를 사건에 연결할까요?"))
+    }
+
+    private fun findText(v: android.view.View, text: String): android.view.View? {
+        if (v is android.widget.TextView && v.text.toString() == text) return v
+        if (v is android.view.ViewGroup) {
+            for (i in 0 until v.childCount) findText(v.getChildAt(i), text)?.let { return it }
+        }
+        return null
     }
 
     @Test fun 같은통화는_끝난뒤창_한번만() {
