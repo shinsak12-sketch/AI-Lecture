@@ -371,13 +371,15 @@ class Store private constructor(private val file: File) {
         @Volatile private var instance: Store? = null
         @Volatile private var appContext: Context? = null
 
-        fun get(context: Context): Store =
-            instance ?: synchronized(this) {
+        fun get(context: Context): Store {
+            // 알람 · 위젯을 맞출 때 쓰는 앱 문맥은 늘 지금 것으로
+            appContext = context.applicationContext
+            return instance ?: synchronized(this) {
                 instance ?: Store(File(context.applicationContext.filesDir, "store.json")).also {
-                    appContext = context.applicationContext
                     it.load()
                     instance = it
                 }
             }
+        }
     }
 }
