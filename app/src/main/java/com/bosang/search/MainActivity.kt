@@ -44,16 +44,22 @@ class MainActivity : ComponentActivity() {
         val case = i.getStringExtra("case")
         val number = i.getStringExtra("number")
         ExternalNav.pending.value = when (i.getStringExtra("nav")) {
-            "issue" -> if (case != null && number != null) {
+            "issue" -> if (number != null) {
                 val time = i.getLongExtra("time", 0L)
                 Screen.IssueEdit(
                     caseNo = case,
+                    number = number,
                     source = IssueSource("call", number, time, time.toString(), null, i.getLongExtra("len", 0L)),
                     kind = runCatching { IssueKind.valueOf(i.getStringExtra("kind").orEmpty()) }.getOrNull(),
                 )
             } else null
             "register" -> number?.let { Screen.Register(numbers = listOf(it)) }
             "case" -> case?.let { Screen.Case(it) }
+            "person" -> number?.let { Screen.Person(it) }
+            "search" -> {
+                ExternalNav.focusSearch.value = true
+                Screen.Home
+            }
             else -> null
         }
     }

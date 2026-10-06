@@ -127,7 +127,8 @@ fun CaseScreen(
 
     val issues = remember(ver, caseNo) { store.issuesForCase(caseNo) }
     val photos = remember(ver, caseNo) { store.photosForCase(caseNo) }
-    val issuesByRecord = remember(issues) { issues.filter { it.source != null }.groupBy { it.source!!.recordKey } }
+    val issueIdx = remember(issues) { issueIndex(issues) }
+    var onlyIssues by rememberSaveable { mutableStateOf(false) }
     val nameOf: (String) -> String = { store.displayName(it) }
     // 문자로 받은 사진은 자동으로 사건 사진에 보관
     LaunchedEffect(sms) {
@@ -161,12 +162,14 @@ fun CaseScreen(
     val label: (String) -> WhoInfo? = { n -> WhoInfo(store.displayName(n), roleOf[n]) }
     fun <T : TimelineItem> List<T>.forWho() = if (who == null) this else filter { it.number == who }
     val callItems = remember(calls, recs) { calls?.let { Records.callItems(it, recs) } }
-    val shown: List<TimelineItem>? = when (kind) {
+    val shownAll: List<TimelineItem>? = when (kind) {
         Kind.SMS -> sms?.forWho()
         Kind.REC -> recs?.forWho()
         Kind.CALL -> callItems?.forWho()
         Kind.PHOTO -> null
     }
+    val withIssues = shownAll?.count { attachedIssues(it, issueIdx).isNotEmpty() } ?: 0
+    val shown = if (onlyIssues) shownAll?.filter { attachedIssues(it, issueIdx).isNotEmpty() } else shownAll
     val counts = mapOf(
         Kind.SMS to sms?.forWho()?.size,
         Kind.REC to recs?.forWho()?.size,
@@ -343,20 +346,28 @@ fun CaseScreen(
         )
 
         item(key = "tl-head") {
-            KindTabs(
-                selected = kind,
-                counts = counts,
-                onSelect = { kind = it },
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 14.dp),
-            )
+            Column(Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 14.dp)) {
+                KindTabs(
+                    selected = kind,
+                    counts = counts,
+                    onSelect = { kind = it },
+                )
+                if (kind != Kind.PHOTO) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 10.dp)) {
+                        FilterPill("전체", !onlyIssues) { onlyIssues = false }
+                        FilterPill("특이사항 있는 것만 $withIssues", onlyIssues) { onlyIssues = true }
+                    }
+                }
+            }
         }
         if (kind == Kind.PHOTO) {
-            photoSection(photos, nameOf) { onPhoto(Photos.shown(it), it.id) }
+            photoSection(photos, nameOf, onAdd = { photoAdd = true }) { onPhoto(Photos.shown(it), it.id) }
         } else {
             timeline(
                 items = shown,
                 player = player,
                 emptyText = when {
+                    onlyIssues -> "특이사항이 붙은 ${kind.label} 기록이 없어요."
                     who != null -> "이 사람과의 ${kind.label} 기록이 없어요. 위에서 [전체]를 눌러 보세요."
                     kind == Kind.REC -> "이 번호들의 통화녹음을 폰에서 찾지 못했어요."
                     else -> "이 번호들과의 ${kind.label} 기록이 없어요."
@@ -365,7 +376,7 @@ fun CaseScreen(
                 loadingText = if (kind == Kind.REC) "통화녹음을 찾는 중 (파일이 많으면 조금 걸려요)" else "불러오는 중",
                 actions = TimelineActions(
                     onMore = { recordMenu = it },
-                    attached = { issuesByRecord[it.recordKey()].orEmpty() },
+                    attached = { attachedIssues(it, issueIdx) },
                     nameOf = nameOf,
                     onIssue = { onIssue(it.id, null) },
                     onImage = { u ->

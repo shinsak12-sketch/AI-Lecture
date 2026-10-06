@@ -65,8 +65,7 @@ object CallOverlay {
     fun showBubble(ctx: Context, number: String) {
         main.post {
             val store = Store.get(ctx)
-            val links = store.linksForNumber(number)
-            if (links.isEmpty()) return@post
+            if (store.linksForNumber(number).isEmpty() && store.issuesForNumber(number).isEmpty()) return@post
             hideBubble(ctx)
             val v = bubbleCard(ctx, store, number)
             add(ctx, v, Gravity.TOP, ctx.dp(200f))
@@ -84,7 +83,7 @@ object CallOverlay {
     private fun bubbleCard(ctx: Context, store: Store, number: String): View {
         val links = store.linksForNumber(number)
         val name = store.displayName(number)
-        val issues = links.flatMap { store.issuesForCase(it.caseNo) }.sortedByDescending { it.source?.timeMillis ?: it.createdAt }.take(3)
+        val issues = relatedIssues(store, number).take(3)
 
         val root = FrameLayout(ctx).apply { setPadding(ctx.dp(12f), 0, ctx.dp(12f), 0) }
         val card = LinearLayout(ctx).apply {
@@ -105,8 +104,10 @@ object CallOverlay {
             orientation = LinearLayout.VERTICAL
             setPadding(ctx.dp(10f), 0, ctx.dp(8f), 0)
         }
-        titles.addView(text(ctx, if (links.size == 1) links[0].caseNo else "사건 ${links.size}개", 15f, 2, Color.WHITE))
-        titles.addView(text(ctx, "$name · " + links.joinToString(", ") { it.role }, 12f, 1, 0xA6FFFFFF.toInt()))
+        titles.addView(text(ctx, when (links.size) { 0 -> name; 1 -> links[0].caseNo; else -> "사건 ${links.size}개" }, 15f, 2, Color.WHITE))
+        titles.addView(
+            text(ctx, if (links.isEmpty()) "사건 없음 · 특이사항 ${issues.size}" else "$name · " + links.joinToString(", ") { it.role }, 12f, 1, 0xA6FFFFFF.toInt()),
+        )
         head.addView(titles, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         head.addView(iconButton(ctx, R.drawable.ic_close, 0x24FFFFFF) { collapse(ctx, store, number) })
         card.addView(head)
@@ -150,8 +151,10 @@ object CallOverlay {
         }
         foot.addView(button(ctx, "접기", false) { collapse(ctx, store, number) }, weighted(ctx, right = 4f))
         foot.addView(
-            button(ctx, "사건 보기", true) {
-                open(ctx, Intent(ctx, MainActivity::class.java).putExtra("nav", "case").putExtra("case", links[0].caseNo))
+            button(ctx, if (links.size == 1) "사건 보기" else "기록 보기", true) {
+                val i = Intent(ctx, MainActivity::class.java)
+                if (links.size == 1) i.putExtra("nav", "case").putExtra("case", links[0].caseNo) else i.putExtra("nav", "person").putExtra("number", number)
+                open(ctx, i)
             },
             weighted(ctx, left = 4f),
         )
@@ -163,7 +166,7 @@ object CallOverlay {
     /** 접으면 오른쪽에 작은 동그라미, 누르면 다시 펼침 */
     private fun collapse(ctx: Context, store: Store, number: String) {
         bubble?.let { remove(ctx, it) }
-        val count = store.linksForNumber(number).sumOf { store.issuesForCase(it.caseNo).size }
+        val count = relatedIssues(store, number).size
         val root = FrameLayout(ctx).apply { setPadding(ctx.dp(6f), ctx.dp(6f), ctx.dp(6f), ctx.dp(6f)) }
         val dot = FrameLayout(ctx).apply {
             background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF7A9CFF.toInt(), 0xFF2F55E6.toInt())).apply { shape = GradientDrawable.OVAL }
@@ -250,7 +253,7 @@ object CallOverlay {
         card.addView(top)
 
         if (links.isNotEmpty()) {
-            // 사건 고르기 (하나면 그대로)
+            // 지금 연결된 사건 (여럿이면 골라서, 특이사항은 번호에 붙고 사건은 열 화면만 정함)
             val chips = LinearLayout(ctx).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(0, ctx.dp(12f), 0, 0)
@@ -273,45 +276,43 @@ object CallOverlay {
                 paint()
             }
             card.addView(chips)
-            card.addView(text(ctx, "특이사항이 있었나요?", 12.5f, 2, INK2).apply { setPadding(ctx.dp(4f), ctx.dp(8f), 0, ctx.dp(8f)) })
-            IssueKind.entries.chunked(3).forEach { rowKinds ->
-                val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-                rowKinds.forEachIndexed { i, k ->
-                    val b = text(ctx, if (k == IssueKind.DAMAGE) "파손" else k.label, 14f, 2, INK).apply {
-                        gravity = Gravity.CENTER
-                        background = rounded(Color.WHITE, ctx.dp(15f).toFloat())
-                        setPadding(0, ctx.dp(13f), 0, ctx.dp(13f))
-                        setCompoundDrawablesRelativeWithIntrinsicBounds(dotDrawable(ctx, kindColor(k)), null, null, null)
-                        compoundDrawablePadding = ctx.dp(6f)
-                        setOnClickListener {
-                            val case = chosen ?: return@setOnClickListener
-                            hideAfter(ctx)
-                            open(
-                                ctx,
-                                Intent(ctx, MainActivity::class.java)
-                                    .putExtra("nav", "issue")
-                                    .putExtra("case", case)
-                                    .putExtra("kind", k.name)
-                                    .putExtra("number", call.number)
-                                    .putExtra("time", call.timeMillis)
-                                    .putExtra("len", call.durationSec * 1000),
-                            )
-                        }
+        } else {
+            card.addView(text(ctx, "사건에 연결되지 않은 번호예요", 13f, 1, INK2).apply { setPadding(ctx.dp(4f), ctx.dp(10f), 0, 0) })
+        }
+        card.addView(text(ctx, "특이사항이 있었나요?", 12.5f, 2, INK2).apply { setPadding(ctx.dp(4f), ctx.dp(10f), 0, ctx.dp(8f)) })
+        IssueKind.entries.chunked(3).forEach { rowKinds ->
+            val row = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+            rowKinds.forEachIndexed { i, k ->
+                val b = text(ctx, if (k == IssueKind.DAMAGE) "파손" else k.label, 14f, 2, INK).apply {
+                    gravity = Gravity.CENTER
+                    background = rounded(Color.WHITE, ctx.dp(15f).toFloat())
+                    setPadding(0, ctx.dp(13f), 0, ctx.dp(13f))
+                    setCompoundDrawablesRelativeWithIntrinsicBounds(dotDrawable(ctx, kindColor(k)), null, null, null)
+                    compoundDrawablePadding = ctx.dp(6f)
+                    setOnClickListener {
+                        hideAfter(ctx)
+                        val intent = Intent(ctx, MainActivity::class.java)
+                            .putExtra("nav", "issue")
+                            .putExtra("kind", k.name)
+                            .putExtra("number", call.number)
+                            .putExtra("time", call.timeMillis)
+                            .putExtra("len", call.durationSec * 1000)
+                        chosen?.let { intent.putExtra("case", it) }
+                        open(ctx, intent)
                     }
-                    row.addView(b, weighted(ctx, left = if (i > 0) 4f else 0f, right = if (i < rowKinds.lastIndex) 4f else 0f))
                 }
-                card.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = ctx.dp(8f) })
+                row.addView(b, weighted(ctx, left = if (i > 0) 4f else 0f, right = if (i < rowKinds.lastIndex) 4f else 0f))
             }
-            val foot = LinearLayout(ctx).apply {
-                orientation = LinearLayout.HORIZONTAL
-                setPadding(0, ctx.dp(4f), 0, 0)
-            }
+            card.addView(row, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { bottomMargin = ctx.dp(8f) })
+        }
+        val foot = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, ctx.dp(4f), 0, 0)
+        }
+        if (links.isNotEmpty()) {
             foot.addView(button(ctx, "특이사항 없음", false) { hideAfter(ctx) }, weighted(ctx, right = 4f))
             foot.addView(button(ctx, "나중에", false) { hideAfter(ctx) }, weighted(ctx, left = 4f))
-            card.addView(foot)
         } else {
-            card.addView(text(ctx, "사건에 연결되지 않은 번호예요", 13.5f, 1, INK2).apply { setPadding(ctx.dp(4f), ctx.dp(12f), 0, ctx.dp(12f)) })
-            val foot = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
             foot.addView(
                 button(ctx, "다시 묻지 않기", false) {
                     store.setQuiet(call.number, true)
@@ -326,11 +327,17 @@ object CallOverlay {
                 },
                 weighted(ctx, left = 4f),
             )
-            card.addView(foot)
         }
+        card.addView(foot)
         root.addView(card, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         return root
     }
+
+    /** 이 번호와 같은 사건 사람들까지의 특이사항, 최신순 */
+    private fun relatedIssues(store: Store, number: String) =
+        (store.issuesForNumber(number) + store.linksForNumber(number).flatMap { store.issuesForCase(it.caseNo) })
+            .distinctBy { it.id }
+            .sortedByDescending { it.source?.timeMillis ?: it.createdAt }
 
     // ───────────── 부품 ─────────────
 

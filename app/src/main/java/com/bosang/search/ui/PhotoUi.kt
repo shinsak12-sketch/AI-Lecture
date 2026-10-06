@@ -118,17 +118,28 @@ private fun AddTile(icon: ImageVector, fg: Color, bg: Color, title: String, body
 
 // ───────────────────────── 사진 탭 ─────────────────────────
 
-fun LazyListScope.photoSection(photos: List<CasePhoto>, nameOf: (String) -> String, onOpen: (CasePhoto) -> Unit) {
+fun LazyListScope.photoSection(
+    photos: List<CasePhoto>,
+    nameOf: (String) -> String,
+    onAdd: () -> Unit,
+    onOpen: (CasePhoto) -> Unit,
+) {
     if (photos.isEmpty()) {
         item(key = "ph-empty") {
             EmptyCard(
                 icon = Ic.image,
                 title = "사진이 없어요",
-                body = "오른쪽 위 [사진+]로 찍거나 앨범에서 넣어 주세요.\n문자로 받은 사진은 자동으로 들어와요.",
-                modifier = Modifier.padding(horizontal = 16.dp),
+                body = "찍거나 앨범에서 골라 넣어 주세요.\n문자로 받은 사진은 자동으로 들어와요.",
+                modifier = Modifier.padding(horizontal = 16.dp).press(scale = 0.98f, onClick = onAdd),
+                action = { GradientButton("사진 추가", icon = Ic.camera, height = 44.dp, radius = 14.dp, onClick = onAdd) },
             )
         }
         return
+    }
+    item(key = "ph-add") {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
+            HeaderAction("사진 추가", icon = Ic.plusThin, onClick = onAdd)
+        }
     }
     listOf("mms" to "문자로 받음", "camera" to "촬영", "album" to "앨범에서").forEach { (src, title) ->
         val list = photos.filter { it.source == src }

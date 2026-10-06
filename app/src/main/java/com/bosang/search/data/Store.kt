@@ -70,9 +70,15 @@ class Store private constructor(private val file: File) {
     }
 
     // ---------- 특이사항 ----------
-    /** 사건의 특이사항, 기록 시각(없으면 쓴 시각) 최신순 */
-    @Synchronized fun issuesForCase(caseNo: String): List<Issue> =
-        issues.filter { it.caseNo == caseNo }.sortedByDescending { it.source?.timeMillis ?: it.createdAt }
+    /** 사건 화면: 그 사건 사람들 번호의 특이사항 + 그 사건에서 직접 쓴 것, 최신순 */
+    @Synchronized fun issuesForCase(caseNo: String): List<Issue> {
+        val numbers = links.filter { it.caseNo == caseNo }.map { it.number }.toSet()
+        return issues.filter { it.caseNo == caseNo || it.subject in numbers }.sortedByDescending { it.source?.timeMillis ?: it.createdAt }
+    }
+
+    /** 사람 화면: 그 번호의 특이사항 (그 사람이 주장한 것 포함), 최신순 */
+    @Synchronized fun issuesForNumber(number: String): List<Issue> =
+        issues.filter { it.subject == number || it.claimant == number }.sortedByDescending { it.source?.timeMillis ?: it.createdAt }
 
     @Synchronized fun issue(id: String): Issue? = issues.firstOrNull { it.id == id }
 
@@ -143,6 +149,13 @@ class Store private constructor(private val file: File) {
 
     // ---------- 변경 (화면에서 호출) ----------
     /** entries: (번호, 관계, 이름) */
+    /** 사건 없이 이름만 기억 (특이사항 관련자) */
+    fun rememberName(number: String, name: String) {
+        if (name.isBlank()) return
+        synchronized(this) { names[number] = name }
+        changed()
+    }
+
     fun upsert(caseNo: String, entries: List<Triple<String, String, String?>>) {
         synchronized(this) {
             val now = System.currentTimeMillis()
@@ -172,7 +185,9 @@ class Store private constructor(private val file: File) {
     fun deleteCase(caseNo: String) {
         synchronized(this) {
             links.removeAll { it.caseNo == caseNo }
-            issues.removeAll { it.caseNo == caseNo }
+            // 번호 기록에 붙은 특이사항은 남기고, 사건에서만 쓴 것만 지움
+            issues.removeAll { it.caseNo == caseNo && it.subject == null }
+            issues.replaceAll { if (it.caseNo == caseNo) it.copy(caseNo = null) else it }
             photos.removeAll { it.caseNo == caseNo }
             recent.remove("c:$caseNo")
         }
@@ -194,6 +209,7 @@ class Store private constructor(private val file: File) {
             while (recent.size > 12) recent.removeAt(recent.lastIndex)
             save()
         }
+        appContext?.let { com.bosang.search.widget.SearchWidget.refresh(it) }
     }
 
     // ---------- 녹음 연결 기억 (백그라운드에서 호출) ----------
@@ -209,6 +225,7 @@ class Store private constructor(private val file: File) {
     private fun changed() {
         synchronized(this) { save() }
         version.intValue = version.intValue + 1
+        appContext?.let { com.bosang.search.widget.SearchWidget.refresh(it) }
     }
 
     private fun save() {
@@ -274,10 +291,12 @@ class Store private constructor(private val file: File) {
 
     companion object {
         @Volatile private var instance: Store? = null
+        @Volatile private var appContext: Context? = null
 
         fun get(context: Context): Store =
             instance ?: synchronized(this) {
                 instance ?: Store(File(context.applicationContext.filesDir, "store.json")).also {
+                    appContext = context.applicationContext
                     it.load()
                     instance = it
                 }

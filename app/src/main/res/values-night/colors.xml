@@ -1,3 +1,9 @@
 <resources>
     <color name="window_bg">#0B0D13</color>
+    <color name="w_bg">#0B0D13</color>
+    <color name="w_card">#171A23</color>
+    <color name="w_ink">#F2F4FA</color>
+    <color name="w_ink2">#9AA1B3</color>
+    <color name="w_ink3">#5F6679</color>
+    <color name="w_chip">#20242F</color>
 </resources>

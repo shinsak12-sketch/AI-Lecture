@@ -79,6 +79,10 @@ import com.bosang.search.data.Player
 import com.bosang.search.data.RecordingIndex
 import com.bosang.search.data.Roles
 import com.bosang.search.data.Store
+import com.bosang.search.data.TimelineItem
+import com.bosang.search.data.recordKey
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.compositeOver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -177,80 +181,95 @@ fun LazyListScope.issuesSection(
     issues: List<Issue>,
     nameOf: (String) -> String,
     onOpen: (Issue) -> Unit,
-    onAdd: () -> Unit,
+    onAdd: (() -> Unit)?,
+    emptyHint: String = "통화·녹음·문자 카드의 ⋮ 에서 그 기록에 붙여 남길 수 있어요",
 ) {
     item(key = "iss-head") {
         SectionHeader("특이사항", issues.size.takeIf { it > 0 }, modifier = Modifier.padding(top = 4.dp)) {
-            HeaderAction("추가", icon = Ic.plusThin, onClick = onAdd)
+            if (onAdd != null) HeaderAction("추가", icon = Ic.plusThin, onClick = onAdd)
         }
     }
-    item(key = "iss-card") {
-        val c = B.c
-        if (issues.isEmpty()) {
+    if (issues.isEmpty()) {
+        item(key = "iss-empty") {
+            val c = B.c
             BCard(
                 Modifier
                     .padding(horizontal = 16.dp)
                     .fillMaxWidth()
-                    .press(scale = 0.98f, onClick = onAdd),
+                    .then(if (onAdd != null) Modifier.press(scale = 0.98f, onClick = onAdd) else Modifier),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(14.dp)) {
                     IconTile(Ic.pen, c.brand, c.brandTint, 34.dp, 11.dp)
                     Spacer(Modifier.width(11.dp))
                     Column(Modifier.weight(1f)) {
                         Text("아직 특이사항이 없어요", style = ts(14.5f, W8), color = c.ink)
-                        Text("통화·녹음·문자 카드의 ⋮ 에서 그 기록에 붙여 남길 수 있어요", style = ts(12.5f, W4), color = c.ink2)
-                    }
-                }
-            }
-        } else {
-            BCard(
-                Modifier
-                    .padding(horizontal = 16.dp)
-                    .fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(horizontal = 14.dp, vertical = 2.dp)) {
-                    issues.forEachIndexed { i, iss ->
-                        if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(c.line))
-                        IssueRow(iss, nameOf) { onOpen(iss) }
+                        Text(emptyHint, style = ts(12.5f, W4), color = c.ink2)
                     }
                 }
             }
         }
+    } else {
+        items(issues, key = { "iss-" + it.id }) { iss ->
+            IssueCard(iss, nameOf, Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp)) { onOpen(iss) }
+        }
     }
 }
 
+/** 특이사항 카드: 구분 색을 연하게 깔고 왼쪽에 색 띠 → 기록 카드와 한눈에 구분 */
 @Composable
-private fun IssueRow(iss: Issue, nameOf: (String) -> String, onClick: () -> Unit) {
+private fun Modifier.issueSurface(iss: Issue, radius: Dp): Modifier {
     val c = B.c
     val (fg, bg) = kindColors(iss.kind)
+    val shape = RoundedCornerShape(radius)
+    return this
+        .depth(shape)
+        .clip(shape)
+        .background(bg.compositeOver(c.card))
+        .drawBehind {
+            drawRect(fg, size = androidx.compose.ui.geometry.Size(4.dp.toPx(), size.height))
+        }
+}
+
+@Composable
+private fun IssueCard(iss: Issue, nameOf: (String) -> String, modifier: Modifier, onClick: () -> Unit) {
+    val c = B.c
+    val (fg, _) = kindColors(iss.kind)
     Row(
         verticalAlignment = Alignment.Top,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .press(scale = 0.98f, onClick = onClick)
-            .padding(vertical = 12.dp),
+            .issueSurface(iss, 18.dp)
+            .padding(start = 16.dp, end = 14.dp, top = 12.dp, bottom = 12.dp),
     ) {
-        IconTile(kindIcon(iss.kind), fg, bg, 34.dp, 11.dp)
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(32.dp).clip(RoundedCornerShape(11.dp)).background(c.card),
+        ) { Icon(kindIcon(iss.kind), null, tint = fg, modifier = Modifier.size(17.dp)) }
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {
-            Text(iss.summary(nameOf), style = ts(14.5f, W8, num = true), color = c.ink, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            val src = iss.source
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .padding(top = 5.dp)
-                    .clip(RoundedCornerShape(7.dp))
-                    .background(if (src?.type == "rec") c.recTint else c.chip)
-                    .padding(horizontal = 7.dp, vertical = 3.dp),
-            ) {
-                val tint = if (src?.type == "rec") c.rec else c.ink2
-                Icon(src?.let { sourceIcon(it) } ?: Ic.pen, null, tint = tint, modifier = Modifier.size(11.dp))
-                Spacer(Modifier.width(4.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(iss.kind.label, style = ts(11.5f, W8), color = fg)
+                Spacer(Modifier.width(6.dp))
+                val src = iss.source
                 Text(
                     src?.let { sourceLabel(it) } ?: ("직접 작성 · " + Fmt.short(iss.createdAt)),
                     style = ts(11.5f, W7, num = true),
-                    color = tint,
+                    color = c.ink2,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
+            }
+            Text(
+                iss.summary(nameOf),
+                style = ts(14.5f, W8, num = true),
+                color = c.ink,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+            iss.firstLine()?.takeIf { it != iss.summary(nameOf) }?.let {
+                Text(it, style = ts(12.5f, W4), color = c.ink2, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 2.dp))
             }
         }
     }
@@ -260,22 +279,29 @@ private fun IssueRow(iss: Issue, nameOf: (String) -> String, onClick: () -> Unit
 @Composable
 fun AttachedIssue(iss: Issue, nameOf: (String) -> String, onOpen: () -> Unit, onPlayAt: ((Long) -> Unit)?) {
     val c = B.c
-    val (fg, bg) = kindColors(iss.kind)
+    val (fg, _) = kindColors(iss.kind)
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
-            .padding(start = 14.dp, top = 4.dp)
+            .padding(start = 14.dp, top = 5.dp)
             .fillMaxWidth()
             .press(scale = 0.98f, onClick = onOpen)
-            .depth(RoundedCornerShape(16.dp))
-            .clip(RoundedCornerShape(16.dp))
-            .background(c.card)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .issueSurface(iss, 16.dp)
+            .padding(start = 14.dp, end = 12.dp, top = 10.dp, bottom = 10.dp),
     ) {
-        IconTile(kindIcon(iss.kind), fg, bg, 26.dp, 9.dp)
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(26.dp).clip(RoundedCornerShape(9.dp)).background(c.card),
+        ) { Icon(kindIcon(iss.kind), null, tint = fg, modifier = Modifier.size(14.dp)) }
         Spacer(Modifier.width(9.dp))
         Column(Modifier.weight(1f)) {
-            Text(iss.summary(nameOf), style = ts(13.5f, W8, num = true), color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(
+                iss.kind.label + " · " + iss.summary(nameOf),
+                style = ts(13.5f, W8, num = true),
+                color = c.ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             iss.firstLine()?.let {
                 Text(it, style = ts(12f, W6), color = c.ink2, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -288,7 +314,7 @@ fun AttachedIssue(iss: Issue, nameOf: (String) -> String, onOpen: () -> Unit, on
                 modifier = Modifier
                     .press(scale = 0.92f) { onPlayAt(off) }
                     .clip(RoundedCornerShape(8.dp))
-                    .background(c.recTint)
+                    .background(c.card)
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             ) {
                 Icon(Ic.play, null, tint = c.rec, modifier = Modifier.size(10.dp))
@@ -298,6 +324,16 @@ fun AttachedIssue(iss: Issue, nameOf: (String) -> String, onOpen: () -> Unit, on
         }
     }
 }
+
+/** 기록 하나에 붙은 특이사항 (통화는 그 통화의 녹음에 붙은 것까지) */
+fun attachedIssues(item: TimelineItem, index: Map<String, List<Issue>>): List<Issue> = when (item) {
+    is TimelineItem.Call -> index[item.recordKey()].orEmpty() +
+        (item.rec?.let { index[IssueSource.recordKey("rec", it.file.cacheKey)] }.orEmpty())
+    else -> index[item.recordKey()].orEmpty()
+}
+
+fun issueIndex(issues: List<Issue>): Map<String, List<Issue>> =
+    issues.mapNotNull { i -> i.source?.let { it.recordKey to i } }.groupBy({ it.first }, { it.second })
 
 // ───────────────────────── 작성 화면 ─────────────────────────
 
@@ -329,7 +365,8 @@ fun IssueEditorScreen(
     store: Store,
     data: PhoneData,
     player: Player,
-    caseNo: String,
+    caseNo: String?,
+    number: String?,
     issueId: String?,
     initialKind: IssueKind?,
     source: IssueSource?,
@@ -341,7 +378,9 @@ fun IssueEditorScreen(
     val existing = remember(issueId) { issueId?.let { store.issue(it) } }
     var kind by remember { mutableStateOf(existing?.kind ?: initialKind) }
     val src = existing?.source ?: source
-    var claimant by remember { mutableStateOf(existing?.claimant ?: src?.number?.takeIf { n -> store.linksForCase(caseNo).any { it.number == n } }) }
+    // 기준 번호: 기록의 상대 (사건 화면에서 직접 쓰면 없을 수 있음)
+    val subject = existing?.subject ?: src?.number ?: number
+    var claimant by remember { mutableStateOf(existing?.claimant ?: subject) }
     var text by remember { mutableStateOf(existing?.text.orEmpty()) }
     var accidentType by remember { mutableStateOf(existing?.accidentType) }
     var baseOurs by remember { mutableStateOf(existing?.baseOurs) }
@@ -360,12 +399,22 @@ fun IssueEditorScreen(
     var confirmDelete by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val ver = store.version.intValue
-    val links = remember(ver, caseNo) { store.linksForCase(caseNo) }
+    // 고를 수 있는 사람: 보고 있던 사건 사람들, 없으면 이 번호와 같은 사건에 있는 사람들
+    val people = remember(ver, caseNo, subject) {
+        val base = if (caseNo != null) store.linksForCase(caseNo)
+        else subject?.let { n -> store.linksForNumber(n).flatMap { store.linksForCase(it.caseNo) } }.orEmpty()
+        val list = base.distinctBy { it.number }.map { it.number to it.role }
+        if (subject != null && list.none { it.first == subject }) listOf(subject to "상대") + list else list
+    }
+    // 사람 추가 시 연결할 사건: 보고 있던 사건, 아니면 이 번호의 사건이 하나일 때 그 사건
+    val linkCase = caseNo ?: subject?.let { n -> store.linksForNumber(n).map { it.caseNo }.distinct().singleOrNull() }
+    val photoCases = caseNo?.let { listOf(it) } ?: subject?.let { n -> store.linksForNumber(n).map { it.caseNo }.distinct() }.orEmpty()
+    val heading = caseNo ?: subject?.let { store.displayName(it) } ?: ""
 
     if (kind == null) {
         KindPickerDialog(
             title = "특이사항",
-            subtitle = src?.let { sourceLabel(it) } ?: caseNo,
+            subtitle = src?.let { sourceLabel(it) } ?: heading,
             onPick = { kind = it },
             onDismiss = onBack,
         )
@@ -377,7 +426,8 @@ fun IssueEditorScreen(
     fun save() {
         val issue = Issue(
             id = existing?.id ?: Photos.newId(),
-            caseNo = caseNo,
+            caseNo = existing?.caseNo ?: caseNo,
+            number = subject,
             kind = k,
             createdAt = existing?.createdAt ?: System.currentTimeMillis(),
             claimant = claimant,
@@ -416,7 +466,7 @@ fun IssueEditorScreen(
                 CircleBtn(Ic.back, "뒤로", onClick = onBack)
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(caseNo, style = ts(12f, W8, tracking = 0.04f, num = true), color = c.ink3)
+                    Text(heading, style = ts(12f, W8, tracking = 0.04f, num = true), color = c.ink3, maxLines = 1)
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 2.dp)) {
                         Box(Modifier.press(scale = 0.95f) { if (existing == null) kind = null }) { KindTag(k, " 특이사항") }
                     }
@@ -443,10 +493,10 @@ fun IssueEditorScreen(
                         .horizontalScroll(rememberScrollState())
                         .padding(horizontal = 16.dp, vertical = 2.dp),
                 ) {
-                    links.forEach { l ->
-                        val on = claimant == l.number
-                        PersonPick(store.nameOf(l.number), l.number, store.displayName(l.number), l.role, on) {
-                            claimant = if (on) null else l.number
+                    people.forEach { (n, role) ->
+                        val on = claimant == n
+                        PersonPick(store.nameOf(n), n, store.displayName(n), role, on) {
+                            claimant = if (on) null else n
                         }
                     }
                     Box(
@@ -623,7 +673,7 @@ fun IssueEditorScreen(
     if (pickPhotos) {
         PhotoPickDialog(
             store = store,
-            caseNo = caseNo,
+            cases = photoCases,
             selected = photoIds.toSet(),
             onDone = { ids ->
                 photoIds.clear()
@@ -637,7 +687,7 @@ fun IssueEditorScreen(
         PersonPickDialog(
             store = store,
             data = data,
-            caseNo = caseNo,
+            caseNo = linkCase,
             onPicked = { n ->
                 claimant = n
                 addPerson = false
@@ -923,9 +973,9 @@ private fun AttachThumb(ref: String, onOpen: () -> Unit, onRemove: () -> Unit) {
 // ───────────────────────── 사진 고르기 · 사람 추가 ─────────────────────────
 
 @Composable
-private fun PhotoPickDialog(store: Store, caseNo: String, selected: Set<String>, onDone: (List<String>) -> Unit, onDismiss: () -> Unit) {
+private fun PhotoPickDialog(store: Store, cases: List<String>, selected: Set<String>, onDone: (List<String>) -> Unit, onDismiss: () -> Unit) {
     val c = B.c
-    val list = remember { store.photosForCase(caseNo) }
+    val list = remember { cases.flatMap { store.photosForCase(it) }.distinctBy { it.uri } }
     val chosen = remember { mutableStateListOf<String>().apply { addAll(selected) } }
     Dialog(onDismissRequest = onDismiss) {
         BCard(radius = 26.dp, level = Depth.FLOAT, modifier = Modifier.fillMaxWidth()) {
@@ -981,19 +1031,24 @@ private fun PhotoPickDialog(store: Store, caseNo: String, selected: Set<String>,
 
 /** 관련자 추가: 연락처·통화내역에서 고르고 관계를 정하면 사건에도 연결 */
 @Composable
-fun PersonPickDialog(store: Store, data: PhoneData, caseNo: String, onPicked: (String) -> Unit, onDismiss: () -> Unit) {
+fun PersonPickDialog(store: Store, data: PhoneData, caseNo: String?, onPicked: (String) -> Unit, onDismiss: () -> Unit) {
     val c = B.c
     var dir by remember { mutableStateOf<List<DirEntry>?>(null) }
     var query by remember { mutableStateOf("") }
     var picked by remember { mutableStateOf<DirEntry?>(null) }
     var role by remember { mutableStateOf("") }
     LaunchedEffect(Unit) { dir = withContext(Dispatchers.IO) { data.directory() } }
-    val inCase = remember { store.linksForCase(caseNo).map { it.number }.toSet() }
+    val inCase = remember { caseNo?.let { store.linksForCase(it).map { l -> l.number }.toSet() }.orEmpty() }
     Dialog(onDismissRequest = onDismiss) {
         BCard(radius = 26.dp, level = Depth.FLOAT, color = c.bg, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp)) {
                 Text("관련자 추가", style = ts(18f, W8), color = c.ink)
-                Text("추가하면 $caseNo 사건에도 연결돼요", style = ts(12.5f, W6, num = true), color = c.ink2, modifier = Modifier.padding(top = 2.dp, bottom = 10.dp))
+                Text(
+                    if (caseNo != null) "추가하면 $caseNo 사건에도 연결돼요" else "사건 없이 이 특이사항의 관련자로만 넣어요",
+                    style = ts(12.5f, W6, num = true),
+                    color = c.ink2,
+                    modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
+                )
                 val p = picked
                 if (p == null) {
                     LightSearchField(query, { query = it }, "이름, 번호, 초성")
@@ -1029,9 +1084,11 @@ fun PersonPickDialog(store: Store, data: PhoneData, caseNo: String, onPicked: (S
                         }
                         Text("다시 고르기", style = ts(13f, W7), color = c.brand, modifier = Modifier.press { picked = null }.padding(6.dp))
                     }
-                    Text("관계", style = ts(12.5f, W8), color = c.ink2, modifier = Modifier.padding(top = 14.dp, bottom = 8.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Roles.all.forEach { r -> RoleChip(r, role == r) { role = r } }
+                    if (caseNo != null) {
+                        Text("관계", style = ts(12.5f, W8), color = c.ink2, modifier = Modifier.padding(top = 14.dp, bottom = 8.dp))
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Roles.all.forEach { r -> RoleChip(r, role == r) { role = r } }
+                        }
                     }
                 }
                 Row(Modifier.padding(top = 14.dp)) {
@@ -1042,10 +1099,11 @@ fun PersonPickDialog(store: Store, data: PhoneData, caseNo: String, onPicked: (S
                         modifier = Modifier.weight(1f),
                         height = 48.dp,
                         radius = 15.dp,
-                        enabled = p != null && roleReady(role),
+                        enabled = p != null && (caseNo == null || roleReady(role)),
                     ) {
                         if (p != null) {
-                            store.upsert(caseNo, listOf(Triple(p.number, role, p.name)))
+                            if (caseNo != null) store.upsert(caseNo, listOf(Triple(p.number, role, p.name)))
+                            else p.name?.let { store.rememberName(p.number, it) }
                             onPicked(p.number)
                         }
                     }

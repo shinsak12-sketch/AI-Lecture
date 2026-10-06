@@ -35,13 +35,19 @@ data class IssueSource(
     }
 }
 
+/**
+ * 특이사항. 기반은 번호(그 통화·문자의 상대)이고, 사건번호는 쓸 때 보고 있던 사건 (없을 수 있음).
+ * 한 사람이 사건이 여러 개여도 기록에 붙으므로 어느 사건 화면에서든 그 번호 기록에 함께 보인다.
+ */
 data class Issue(
     val id: String,
-    val caseNo: String,
+    val caseNo: String?,
     val kind: IssueKind,
     val createdAt: Long,
     /** 주장한 사람 (번호) */
     val claimant: String? = null,
+    /** 이 특이사항의 기준 번호 (기록의 상대) */
+    val number: String? = null,
     val source: IssueSource? = null,
     val text: String = "",
     // 과실: 우리 쪽 과실 (0~100)
@@ -60,6 +66,9 @@ data class Issue(
     /** 붙인 사진 (CasePhoto.id) */
     val photos: List<String> = emptyList(),
 ) {
+    /** 기준 번호: 적어 둔 번호 → 기록의 번호 → 주장한 사람 */
+    val subject: String? get() = number ?: source?.number ?: claimant
+
     /** 한 줄 요약. nameOf 로 번호 → 이름 */
     fun summary(nameOf: (String) -> String): String {
         val who = claimant?.let(nameOf)
@@ -87,7 +96,8 @@ data class Issue(
 
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id)
-        put("c", caseNo)
+        caseNo?.let { put("c", it) }
+        number?.let { put("num", it) }
         put("k", kind.name)
         put("t", createdAt)
         claimant?.let { put("who", it) }
@@ -130,10 +140,11 @@ data class Issue(
                 o.optJSONArray(name)?.let { a -> (0 until a.length()).map { a.getString(it) } } ?: emptyList()
             return Issue(
                 id = o.getString("id"),
-                caseNo = o.getString("c"),
+                caseNo = o.optString("c").ifEmpty { null },
                 kind = kind,
                 createdAt = o.optLong("t"),
                 claimant = o.optString("who").ifEmpty { null },
+                number = o.optString("num").ifEmpty { null },
                 source = src,
                 text = o.optString("text"),
                 accidentType = o.optString("at").ifEmpty { null },

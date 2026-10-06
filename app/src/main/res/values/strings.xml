@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">보상검색기</string>
+    <string name="widget_hint">사고번호, 번호, 이름, 초성</string>
+    <string name="widget_recent">최근 본 사건 · 사람</string>
+    <string name="widget_empty">사건을 열어 보면 여기에 바로가기가 생겨요</string>
+    <string name="widget_desc">검색과 최근 본 사건</string>
 </resources>

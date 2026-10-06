@@ -72,7 +72,7 @@ fun PersonScreen(
     onBack: () -> Unit,
     onOpenCase: (String) -> Unit,
     onRegister: () -> Unit,
-    onIssue: (caseNo: String, source: IssueSource) -> Unit,
+    onIssue: (issueId: String?, source: IssueSource?) -> Unit,
     onPhoto: (ref: String) -> Unit,
 ) {
     val c = B.c
@@ -110,14 +110,19 @@ fun PersonScreen(
     }
     var kind by remember { mutableStateOf(Kind.SMS) }
     val callItems = remember(calls, recs) { calls?.let { Records.callItems(it, recs) } }
-    val shown: List<TimelineItem>? = when (kind) {
+    val issues = remember(ver, number) { store.issuesForNumber(number) }
+    val issueIdx = remember(issues) { issueIndex(issues) }
+    var onlyIssues by remember { mutableStateOf(false) }
+    val nameOf: (String) -> String = { store.displayName(it) }
+    val shownAll: List<TimelineItem>? = when (kind) {
         Kind.SMS -> sms
         Kind.REC -> recs
         Kind.CALL -> callItems
         Kind.PHOTO -> null
     }
+    val withIssues = shownAll?.count { attachedIssues(it, issueIdx).isNotEmpty() } ?: 0
+    val shown = if (onlyIssues) shownAll?.filter { attachedIssues(it, issueIdx).isNotEmpty() } else shownAll
     var recordMenu by remember { mutableStateOf<TimelineItem?>(null) }
-    var pickCaseFor by remember { mutableStateOf<TimelineItem?>(null) }
     var moreMenu by remember { mutableStateOf(false) }
 
     val listState = rememberLazyListState()
@@ -217,6 +222,13 @@ fun PersonScreen(
             )
         }
 
+        issuesSection(
+            issues = issues,
+            nameOf = nameOf,
+            onOpen = { onIssue(it.id, null) },
+            onAdd = { onIssue(null, null) },
+        )
+
         item(key = "tl-head") {
             SectionHeader(
                 "전체 기록",
@@ -226,20 +238,36 @@ fun PersonScreen(
             }
         }
         item(key = "tl-tabs") {
+          Column {
             KindTabs(
                 selected = kind,
                 counts = mapOf(Kind.SMS to sms?.size, Kind.REC to recs?.size, Kind.CALL to callItems?.size),
                 kinds = listOf(Kind.SMS, Kind.REC, Kind.CALL),
                 onSelect = { kind = it },
-                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp),
             )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 14.dp)) {
+                FilterPill("전체", !onlyIssues) { onlyIssues = false }
+                FilterPill("특이사항 있는 것만 $withIssues", onlyIssues) { onlyIssues = true }
+            }
+          }
         }
         timeline(
             items = shown,
             player = player,
-            emptyText = if (kind == Kind.REC) "이 번호의 통화녹음을 폰에서 찾지 못했어요." else "이 번호와의 ${kind.label} 기록이 없어요.",
+            emptyText = when {
+                onlyIssues -> "특이사항이 붙은 ${kind.label} 기록이 없어요."
+                kind == Kind.REC -> "이 번호의 통화녹음을 폰에서 찾지 못했어요."
+                else -> "이 번호와의 ${kind.label} 기록이 없어요."
+            },
             who = null,
-            actions = TimelineActions(onMore = { recordMenu = it }, onImage = { onPhoto(it.toString()) }),
+            actions = TimelineActions(
+                onMore = { recordMenu = it },
+                attached = { attachedIssues(it, issueIdx) },
+                nameOf = nameOf,
+                onIssue = { onIssue(it.id, null) },
+                onImage = { onPhoto(it.toString()) },
+            ),
             loadingText = if (kind == Kind.REC) "통화녹음을 찾는 중 (파일이 많으면 조금 걸려요)" else "불러오는 중",
         )
     }
@@ -258,12 +286,10 @@ fun PersonScreen(
             subtitle = sub,
             onDismiss = { recordMenu = null },
             items = buildList {
-                if (links.isNotEmpty()) {
-                    add(Option("특이사항 남기기", Ic.pen) {
-                        recordMenu = null
-                        if (links.size == 1) onIssue(links.first().caseNo, item.toSource()) else pickCaseFor = item
-                    })
-                }
+                add(Option("특이사항 남기기", Ic.pen) {
+                    recordMenu = null
+                    onIssue(null, item.toSource())
+                })
                 when (item) {
                     is TimelineItem.Sms -> add(Option("문자 보내기", Ic.msg) {
                         recordMenu = null
@@ -294,19 +320,6 @@ fun PersonScreen(
         )
     }
 
-    pickCaseFor?.let { item ->
-        OptionsDialog(
-            title = "어느 사건의 특이사항인가요?",
-            subtitle = null,
-            onDismiss = { pickCaseFor = null },
-            items = links.map { l ->
-                Option("${l.caseNo} · ${l.role}", Ic.folder) {
-                    pickCaseFor = null
-                    onIssue(l.caseNo, item.toSource())
-                }
-            },
-        )
-    }
 }
 
 @Composable

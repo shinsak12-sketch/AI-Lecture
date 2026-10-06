@@ -89,6 +89,17 @@ fun HomeScreen(
     val today = LocalDate.now()
     val todayCount = sums?.values?.count { s -> s.lastTime?.let { Fmt.dayKey(it) == today } == true }
     val searching = query.isNotBlank()
+    // 위젯 검색칸으로 들어오면 바로 입력
+    val searchFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    LaunchedEffect(ExternalNav.focusSearch.value) {
+        if (ExternalNav.focusSearch.value) {
+            ExternalNav.focusSearch.value = false
+            kotlinx.coroutines.delay(350)
+            runCatching { searchFocus.requestFocus() }
+            keyboard?.show()
+        }
+    }
     // 사건이 없는 사람도 찾을 수 있게: 연락처 + 통화내역 (검색을 시작할 때 읽음)
     var directory by remember { mutableStateOf<List<DirEntry>?>(null) }
     LaunchedEffect(searching, resumeTick) {
@@ -115,6 +126,7 @@ fun HomeScreen(
                         refresh++
                     },
                     onSettings = onSettings,
+                    focus = searchFocus,
                 )
             }
             // 검색칸이 다시 만들어지면 한글 조합이 끊기므로, 검색 중에도 같은 자리에 둔다
@@ -180,6 +192,7 @@ private fun HomeHero(
     tall: Boolean,
     onRescan: () -> Unit,
     onSettings: () -> Unit,
+    focus: androidx.compose.ui.focus.FocusRequester,
 ) {
     var menu by remember { mutableStateOf(false) }
     Hero(bottomPadding = if (tall) 84.dp else 22.dp) {
@@ -245,7 +258,7 @@ private fun HomeHero(
             color = Color.White,
             modifier = Modifier.padding(top = 6.dp, bottom = 18.dp),
         )
-        HeroSearchField(query, onQuery, "사고번호, 번호, 이름, 초성")
+        HeroSearchField(query, onQuery, "사고번호, 번호, 이름, 초성", focus = focus)
     }
 }
 

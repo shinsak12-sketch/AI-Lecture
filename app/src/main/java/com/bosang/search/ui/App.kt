@@ -46,8 +46,10 @@ sealed interface Screen {
     data class Register(val caseNo: String? = null, val numbers: List<String> = emptyList()) : Screen
     data class Case(val caseNo: String) : Screen
     data class Person(val number: String) : Screen
+    /** 특이사항 쓰기: 기준은 번호, 사건은 보고 있던 곳 (없을 수 있음) */
     data class IssueEdit(
-        val caseNo: String,
+        val caseNo: String?,
+        val number: String? = null,
         val issueId: String? = null,
         val source: IssueSource? = null,
         val kind: IssueKind? = null,
@@ -59,6 +61,8 @@ sealed interface Screen {
 /** 앱 밖(통화 끝난 뒤 창)에서 열어 달라고 한 화면 */
 object ExternalNav {
     val pending = mutableStateOf<Screen?>(null)
+    /** 위젯 검색칸을 눌러 들어옴 → 홈 검색칸에 바로 커서 */
+    val focusSearch = mutableStateOf(false)
 }
 
 object Perms {
@@ -109,7 +113,6 @@ fun App(resumeTick: Int) {
     }
 
     var stack by remember { mutableStateOf(listOf<Screen>(Screen.Home)) }
-    var markPick by remember { mutableStateOf<IssueSource?>(null) }
     fun push(s: Screen) {
         if (s is Screen.Register) player.release()
         stack = stack + s
@@ -127,7 +130,7 @@ fun App(resumeTick: Int) {
     LaunchedEffect(ExternalNav.pending.value) {
         val next = ExternalNav.pending.value ?: return@LaunchedEffect
         ExternalNav.pending.value = null
-        push(next)
+        if (next == Screen.Home) stack = listOf(Screen.Home) else push(next)
     }
     BackHandler(enabled = stack.size == 1 && stack.first() == Screen.Settings) { tab(Tab.CASES) }
 
@@ -198,7 +201,7 @@ fun App(resumeTick: Int) {
                     onBack = { pop() },
                     onOpenCase = { push(Screen.Case(it)) },
                     onRegister = { push(Screen.Register(numbers = listOf(s.number))) },
-                    onIssue = { caseNo, src -> push(Screen.IssueEdit(caseNo, source = src)) },
+                    onIssue = { id, src -> push(Screen.IssueEdit(null, number = s.number, issueId = id, source = src)) },
                     onPhoto = { ref -> push(Screen.Photo(ref, null)) },
                 )
                 is Screen.IssueEdit -> IssueEditorScreen(
@@ -206,6 +209,7 @@ fun App(resumeTick: Int) {
                     data = data,
                     player = player,
                     caseNo = s.caseNo,
+                    number = s.number,
                     issueId = s.issueId,
                     initialKind = s.kind,
                     source = s.source,
@@ -218,21 +222,14 @@ fun App(resumeTick: Int) {
 
         val showPlayer = top == Screen.Home || top == Screen.Settings || top is Screen.Case || top is Screen.Person
         // 녹음을 듣다가 "이 지점에" 특이사항
-        store.version.intValue
-        val markCases = player.number?.let { store.linksForNumber(it) }.orEmpty()
-        val onMark: (() -> Unit)? = if (markCases.isEmpty() || player.currentKey == null) null else {
+        val onMark: (() -> Unit)? = if (player.number == null || player.currentKey == null) null else {
             {
                 val src = IssueSource(
                     "rec", player.number.orEmpty(), player.recTime, player.currentKey.orEmpty(),
                     player.positionMs, player.durationMs,
                 )
                 if (player.isPlaying) player.playPause()
-                val here = (top as? Screen.Case)?.caseNo?.takeIf { cn -> markCases.any { it.caseNo == cn } }
-                when {
-                    here != null -> push(Screen.IssueEdit(here, source = src))
-                    markCases.size == 1 -> push(Screen.IssueEdit(markCases.first().caseNo, source = src))
-                    else -> markPick = src
-                }
+                push(Screen.IssueEdit((top as? Screen.Case)?.caseNo, number = src.number, source = src))
             }
         }
         if (showPlayer) {
@@ -252,18 +249,5 @@ fun App(resumeTick: Int) {
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
-    }
-    markPick?.let { src ->
-        OptionsDialog(
-            title = "어느 사건의 특이사항인가요?",
-            subtitle = Fmt.duration(src.offsetMs ?: 0) + " 지점",
-            onDismiss = { markPick = null },
-            items = store.linksForNumber(src.number).map { l ->
-                Option("${l.caseNo} · ${l.role}", Ic.folder) {
-                    markPick = null
-                    stack = stack + Screen.IssueEdit(l.caseNo, source = src)
-                }
-            },
-        )
     }
 }

@@ -45,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
@@ -428,7 +429,13 @@ fun LogoTile(size: Dp = 30.dp, radius: Dp = 9.dp, iconSize: Dp = 17.dp) {
 
 /** 어두운 머리 안의 검색칸 */
 @Composable
-fun HeroSearchField(value: String, onValue: (String) -> Unit, placeholder: String, modifier: Modifier = Modifier) {
+fun HeroSearchField(
+    value: String,
+    onValue: (String) -> Unit,
+    placeholder: String,
+    modifier: Modifier = Modifier,
+    focus: androidx.compose.ui.focus.FocusRequester? = null,
+) {
     val shape = RoundedCornerShape(16.dp)
     Row(
         verticalAlignment = Alignment.CenterVertically,
@@ -453,7 +460,7 @@ fun HeroSearchField(value: String, onValue: (String) -> Unit, placeholder: Strin
                 textStyle = ts(15.5f, W6).copy(color = Color.White),
                 cursorBrush = SolidColor(Color.White),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().then(if (focus != null) Modifier.focusRequester(focus) else Modifier),
             )
         }
         if (value.isNotEmpty()) {
