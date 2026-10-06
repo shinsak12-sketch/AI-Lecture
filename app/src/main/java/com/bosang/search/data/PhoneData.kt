@@ -42,6 +42,16 @@ data class RecordingFile(
     val cacheKey: String get() = "$id|$displayName"
 }
 
+/** 검색용: 연락처 + 통화내역의 번호 하나 */
+data class DirEntry(
+    val number: String,
+    val name: String?,
+    /** 휴대전화, 회사 같은 번호 종류 */
+    val label: String?,
+    /** 마지막 통화 시각 (통화내역에 없으면 null) */
+    val lastCall: Long?,
+)
+
 /** 폰 안의 통화기록·연락처·문자·통화녹음을 읽기만 한다. */
 class PhoneData(context: Context) {
     private val resolver = context.applicationContext.contentResolver
@@ -144,6 +154,21 @@ class PhoneData(context: Context) {
         }
         val collator = Collator.getInstance(Locale.KOREAN)
         return out.distinctBy { it.name + "|" + it.number }.sortedWith { a, b -> collator.compare(a.name, b.name) }
+    }
+
+    /** 연락처와 최근 통화내역을 번호 하나당 한 줄로 (최근 통화한 번호가 앞) */
+    fun directory(): List<DirEntry> {
+        val byNumber = LinkedHashMap<String, DirEntry>()
+        calls(2000).forEach { c ->
+            if (c.number.isNotEmpty() && c.number !in byNumber) {
+                byNumber[c.number] = DirEntry(c.number, c.name?.takeIf { it.isNotBlank() }, null, c.timeMillis)
+            }
+        }
+        contacts().forEach { p ->
+            val prev = byNumber[p.number]
+            byNumber[p.number] = DirEntry(p.number, p.name, p.label, prev?.lastCall)
+        }
+        return byNumber.values.toList()
     }
 
     /** 그 번호와 주고받은 문자 (표기 차이는 무시하고 비교) */

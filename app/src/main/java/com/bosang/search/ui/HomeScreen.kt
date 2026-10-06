@@ -43,6 +43,10 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import com.bosang.search.core.PhoneNumbers
 import com.bosang.search.data.CaseSummary
+import com.bosang.search.data.DirEntry
+import com.bosang.search.core.Hangul
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.bosang.search.data.PhoneData
 import com.bosang.search.data.Player
 import com.bosang.search.data.RecordingIndex
@@ -84,6 +88,11 @@ fun HomeScreen(
     val today = LocalDate.now()
     val todayCount = sums?.values?.count { s -> s.lastTime?.let { Fmt.dayKey(it) == today } == true }
     val searching = query.isNotBlank()
+    // 사건이 없는 사람도 찾을 수 있게: 연락처 + 통화내역 (검색을 시작할 때 읽음)
+    var directory by remember { mutableStateOf<List<DirEntry>?>(null) }
+    LaunchedEffect(searching, resumeTick) {
+        if (searching) directory = withContext(Dispatchers.IO) { data.directory() }
+    }
 
     LazyColumn(
         contentPadding = PaddingValues(bottom = 140.dp),
@@ -126,7 +135,7 @@ fun HomeScreen(
         }
 
         if (searching) {
-            searchResults(query, store, sums, onOpenCase, onOpenPerson)
+            searchResults(query, store, sums, directory, onOpenCase, onOpenPerson)
         } else if (cases.isEmpty()) {
             item(key = "empty") {
                 EmptyCard(
@@ -453,15 +462,26 @@ private fun androidx.compose.foundation.lazy.LazyListScope.searchResults(
     query: String,
     store: Store,
     sums: Map<String, CaseSummary>?,
+    directory: List<DirEntry>?,
     onOpenCase: (String) -> Unit,
     onOpenPerson: (String) -> Unit,
 ) {
     val cases = store.searchCases(query)
     val people = store.searchPeople(query)
+    val registered = store.registeredNumbers().toSet()
+    val typed = query.filter { it.isDigit() }
+    val text = query.trim()
+    // 사건이 없는 번호: 연락처 · 통화내역에서 번호 일부, 이름, 초성으로
+    val others = directory.orEmpty().filter { e ->
+        e.number !in registered &&
+            ((typed.length >= 3 && e.number.contains(typed)) ||
+                (text.isNotEmpty() && e.name?.let { Hangul.matches(it, text) } == true))
+    }.take(50)
     val digits = PhoneNumbers.normalize(query)
     val unregistered = query.count { it.isDigit() } >= 9 &&
         PhoneNumbers.looksLikeNumber(query) &&
-        store.registeredNumbers().none { it == digits }
+        digits !in registered &&
+        others.none { it.number == digits }
 
     if (cases.isNotEmpty()) {
         item(key = "rc-head") { SectionHeader("사건", cases.size, modifier = Modifier.padding(top = 6.dp)) }
@@ -488,6 +508,21 @@ private fun androidx.compose.foundation.lazy.LazyListScope.searchResults(
             }
         }
     }
+    if (others.isNotEmpty()) {
+        item(key = "ro-head") { SectionHeader("연락처 · 통화내역", others.size, modifier = Modifier.padding(top = 6.dp)) }
+        itemsIndexed(others, key = { _, e -> "ro-${e.number}" }) { i, e ->
+            CardSegment(
+                first = i == 0,
+                last = i == others.lastIndex,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            ) {
+                DirLine(e) { onOpenPerson(e.number) }
+            }
+        }
+    }
+    if (directory == null) {
+        item(key = "ro-loading") { Loading("연락처 · 통화내역에서 찾는 중") }
+    }
     if (unregistered) {
         item(key = "ru-head") { SectionHeader("등록 안 된 번호", modifier = Modifier.padding(top = 6.dp)) }
         item(key = "ru") {
@@ -510,7 +545,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.searchResults(
             }
         }
     }
-    if (cases.isEmpty() && people.isEmpty() && !unregistered) {
+    if (cases.isEmpty() && people.isEmpty() && others.isEmpty() && !unregistered && directory != null) {
         item(key = "r-none") {
             EmptyCard(
                 icon = Ic.search,
@@ -518,6 +553,42 @@ private fun androidx.compose.foundation.lazy.LazyListScope.searchResults(
                 body = "사고번호 일부(12345), 전화번호 뒷자리,\n이름이나 초성(ㅎㄱㄷ)으로 찾을 수 있어요.",
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 20.dp),
             )
+        }
+    }
+}
+
+/** 사건이 없는 번호 한 줄 */
+@Composable
+private fun DirLine(e: DirEntry, onClick: () -> Unit) {
+    val c = B.c
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .press(scale = 0.98f, onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+    ) {
+        Avatar(e.name, e.number, 42.dp)
+        Spacer(Modifier.width(13.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                e.name ?: PhoneNumbers.format(e.number),
+                style = ts(15.5f, W7, num = e.name == null),
+                color = c.ink,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                if (e.name != null) PhoneNumbers.format(e.number) + (e.label?.let { " · $it" } ?: "") else "저장 안 된 번호",
+                style = ts(13f, W4, num = true),
+                color = c.ink2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            GrayTag("사건 없음")
+            e.lastCall?.let { Text("통화 " + Fmt.short(it), style = ts(11.5f, W7, num = true), color = c.ink3) }
         }
     }
 }
