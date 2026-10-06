@@ -159,3 +159,22 @@ class CaseNumberTest {
         assertFalse(CaseNumber.matches("26-00012345", "홍길동"))
     }
 }
+
+class HangulTest {
+    @Test fun 초성() {
+        assertEquals("ㅎㄱㄷ", Hangul.initials("홍길동"))
+        assertEquals("ㄱㄴㅈㅂ", Hangul.initials("강남정비"))
+    }
+
+    @Test fun 이름검색() {
+        assertTrue(Hangul.matches("홍길동", "길동"))
+        assertTrue(Hangul.matches("홍길동", "ㅎㄱㄷ"))
+        assertTrue(Hangul.matches("홍길동", "ㅎㄱ"))
+        assertTrue(Hangul.matches("서울한방병원", "ㅎㅂ"))
+        assertTrue(Hangul.matches("서울 한방병원", "ㅅㅇㅎㅂ"))
+        assertTrue(Hangul.matches("Dr.Kim", "kim"))
+        assertTrue(Hangul.matches("홍길동", ""))
+        assertFalse(Hangul.matches("홍길동", "김"))
+        assertFalse(Hangul.matches("홍길동", "ㄱㅎ"))
+    }
+}

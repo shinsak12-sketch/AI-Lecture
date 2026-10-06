@@ -131,7 +131,7 @@ fun CaseScreen(
                 OutlinedButton(onClick = onAddPeople, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Filled.Add, null)
                     Spacer(Modifier.width(6.dp))
-                    Text("통화내역에서 사람 추가")
+                    Text("사람 추가 (통화내역 · 연락처)")
                 }
             }
             item { SectionTitle("문자 · 통화녹음") }

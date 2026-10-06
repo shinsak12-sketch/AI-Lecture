@@ -67,7 +67,7 @@ fun HomeScreen(
             ExtendedFloatingActionButton(
                 onClick = onRegister,
                 icon = { Icon(Icons.Filled.Add, contentDescription = null) },
-                text = { Text("통화내역에서 등록") },
+                text = { Text("사건 등록") },
             )
         },
     ) { pad ->
@@ -110,7 +110,7 @@ fun HomeScreen(
                 if (cases.isEmpty()) {
                     item {
                         Text(
-                            "아직 등록된 사건이 없어요.\n아래 [통화내역에서 등록]으로 시작하세요.",
+                            "아직 등록된 사건이 없어요.\n아래 [사건 등록]을 눌러 통화내역이나 연락처에서 번호를 골라보세요.",
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(vertical = 12.dp),
                         )

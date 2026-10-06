@@ -11,7 +11,9 @@ import com.bosang.search.core.CallEntry
 import com.bosang.search.core.ParsedRecording
 import com.bosang.search.core.PhoneNumbers
 import com.bosang.search.core.RecordingName
+import java.text.Collator
 import java.time.ZoneId
+import java.util.Locale
 
 data class SmsItem(
     val id: Long,
@@ -19,6 +21,13 @@ data class SmsItem(
     val body: String,
     val timeMillis: Long,
     val incoming: Boolean,
+)
+
+data class ContactEntry(
+    val name: String,
+    val number: String,
+    /** 휴대전화, 회사 같은 번호 종류 */
+    val label: String?,
 )
 
 data class RecordingFile(
@@ -36,6 +45,7 @@ data class RecordingFile(
 /** 폰 안의 통화기록·연락처·문자·통화녹음을 읽기만 한다. */
 class PhoneData(context: Context) {
     private val resolver = context.applicationContext.contentResolver
+    private val res = context.applicationContext.resources
 
     /** 최신순 통화기록 */
     fun calls(limit: Int): List<CallEntry> {
@@ -84,6 +94,35 @@ class PhoneData(context: Context) {
             )?.use { c -> while (c.moveToNext()) out.add(PhoneNumbers.normalize(c.getString(0))) }
         }
         return out.filter { it.isNotEmpty() }.distinct()
+    }
+
+    /** 번호가 있는 연락처 전부 (한 사람이 번호가 여러 개면 번호마다 한 줄), 이름순 */
+    fun contacts(): List<ContactEntry> {
+        val out = ArrayList<ContactEntry>()
+        runCatching {
+            resolver.query(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                arrayOf(
+                    ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                    ContactsContract.CommonDataKinds.Phone.NUMBER,
+                    ContactsContract.CommonDataKinds.Phone.TYPE,
+                    ContactsContract.CommonDataKinds.Phone.LABEL,
+                ),
+                null, null, null,
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    val number = PhoneNumbers.normalize(c.getString(1))
+                    if (number.isEmpty()) continue
+                    val name = c.getString(0)?.trim().orEmpty()
+                    val label = runCatching {
+                        ContactsContract.CommonDataKinds.Phone.getTypeLabel(res, c.getInt(2), c.getString(3)).toString()
+                    }.getOrNull()
+                    out.add(ContactEntry(name.ifEmpty { PhoneNumbers.format(number) }, number, label))
+                }
+            }
+        }
+        val collator = Collator.getInstance(Locale.KOREAN)
+        return out.distinctBy { it.name + "|" + it.number }.sortedWith { a, b -> collator.compare(a.name, b.name) }
     }
 
     /** 그 번호와 주고받은 문자 (표기 차이는 무시하고 비교) */

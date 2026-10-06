@@ -28,6 +28,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -50,7 +51,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.bosang.search.core.CaseNumber
+import com.bosang.search.core.Hangul
 import com.bosang.search.core.PhoneNumbers
+import com.bosang.search.data.ContactEntry
 import com.bosang.search.data.PhoneData
 import com.bosang.search.data.Store
 import kotlinx.coroutines.Dispatchers
@@ -64,6 +67,8 @@ private data class CallRow(
     val lastType: Int,
     val count: Int,
 )
+
+private enum class Source(val label: String) { CALLS("통화내역"), CONTACTS("연락처") }
 
 private fun callTypeLabel(type: Int): String = when (type) {
     CallLog.Calls.INCOMING_TYPE -> "수신"
@@ -83,6 +88,8 @@ fun RegisterScreen(
     onSaved: (String) -> Unit,
 ) {
     var rows by remember { mutableStateOf<List<CallRow>?>(null) }
+    var contacts by remember { mutableStateOf<List<ContactEntry>?>(null) }
+    var source by remember { mutableStateOf(Source.CALLS) }
     val selected = remember { mutableStateListOf<String>().apply { addAll(prefillNumbers) } }
     val names = remember { mutableStateMapOf<String, String>() }
     var step by remember { mutableStateOf(if (prefillNumbers.isNotEmpty()) 2 else 1) }
@@ -95,12 +102,18 @@ fun RegisterScreen(
                 .map { (n, list) -> CallRow(n, list.first().name, list.first().timeMillis, list.first().type, list.size) }
         }
     }
+    // 연락처는 탭을 처음 열 때 불러옴
+    LaunchedEffect(source) {
+        if (source == Source.CONTACTS && contacts == null) {
+            contacts = withContext(Dispatchers.IO) { data.contacts() }
+        }
+    }
 
-    // 고른 번호의 표시 이름: 통화기록 → 저장된 이름 → 연락처 순
+    // 고른 번호의 표시 이름: 고를 때 본 이름 → 통화기록 → 저장된 이름 → 연락처 순
     LaunchedEffect(step) {
         if (step != 2) return@LaunchedEffect
         selected.toList().forEach { n ->
-            if (names[n] != null) return@forEach
+            if (!names[n].isNullOrBlank()) return@forEach
             val fromCalls = rows?.firstOrNull { it.number == n }?.name
             names[n] = fromCalls ?: store.nameOf(n) ?: withContext(Dispatchers.IO) { data.contactName(n) } ?: ""
         }
@@ -109,8 +122,12 @@ fun RegisterScreen(
     if (step == 1) {
         PickStep(
             rows = rows,
+            contacts = contacts,
+            source = source,
+            onSource = { source = it },
             store = store,
             selected = selected,
+            names = names,
             onBack = onBack,
             onNext = { step = 2 },
         )
@@ -130,16 +147,28 @@ fun RegisterScreen(
 @Composable
 private fun PickStep(
     rows: List<CallRow>?,
+    contacts: List<ContactEntry>?,
+    source: Source,
+    onSource: (Source) -> Unit,
     store: Store,
     selected: MutableList<String>,
+    names: MutableMap<String, String>,
     onBack: () -> Unit,
     onNext: () -> Unit,
 ) {
     var filter by remember { mutableStateOf("") }
+    val toggle: (String, String?) -> Unit = { number, name ->
+        if (number in selected) {
+            selected.remove(number)
+        } else {
+            selected.add(number)
+            if (!name.isNullOrBlank()) names[number] = name
+        }
+    }
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("통화내역에서 번호 고르기") },
+                title = { Text("번호 고르기") },
                 navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "뒤로") } },
             )
         },
@@ -161,70 +190,109 @@ private fun PickStep(
                 .padding(pad)
                 .fillMaxSize(),
         ) {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(horizontal = 16.dp),
+            ) {
+                Source.entries.forEach { s ->
+                    FilterChip(selected = source == s, onClick = { onSource(s) }, label = { Text(s.label) })
+                }
+            }
             OutlinedTextField(
                 value = filter,
                 onValueChange = { filter = it },
                 singleLine = true,
                 leadingIcon = { Icon(Icons.Filled.Search, null) },
-                placeholder = { Text("이름이나 번호로 좁히기") },
+                placeholder = { Text("이름, 초성(ㅎㄱㄷ), 번호") },
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 4.dp),
             )
-            if (rows == null) {
+            val digits = filter.filter { it.isDigit() }
+            val shownCalls = rows?.filter { r ->
+                filter.isBlank() ||
+                    (digits.isNotEmpty() && r.number.contains(digits)) ||
+                    (r.name != null && Hangul.matches(r.name, filter))
+            }
+            val shownContacts = contacts?.filter { c ->
+                filter.isBlank() ||
+                    (digits.isNotEmpty() && c.number.contains(digits)) ||
+                    Hangul.matches(c.name, filter)
+            }
+            val loading = if (source == Source.CALLS) shownCalls == null else shownContacts == null
+            if (loading) {
                 Row(Modifier.padding(24.dp), verticalAlignment = Alignment.CenterVertically) {
                     CircularProgressIndicator(strokeWidth = 2.dp)
                     Spacer(Modifier.width(12.dp))
-                    Text("통화내역 불러오는 중…")
+                    Text("${source.label} 불러오는 중…")
                 }
                 return@Column
             }
-            val digits = filter.filter { it.isDigit() }
-            val shown = rows.filter { r ->
-                filter.isBlank() ||
-                    (digits.isNotEmpty() && r.number.contains(digits)) ||
-                    (r.name?.contains(filter.trim()) == true)
-            }
             LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
-                items(shown, key = { it.number }) { r ->
-                    val checked = r.number in selected
-                    val caseCount = store.linksForNumber(r.number).size
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { if (checked) selected.remove(r.number) else selected.add(r.number) }
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                    ) {
-                        Checkbox(
-                            checked = checked,
-                            onCheckedChange = { if (it) selected.add(r.number) else selected.remove(r.number) },
+                if (source == Source.CALLS) {
+                    items(shownCalls.orEmpty(), key = { "c-" + it.number }) { r ->
+                        PickRow(
+                            checked = r.number in selected,
+                            title = r.name ?: PhoneNumbers.format(r.number),
+                            sub = (if (r.name != null) PhoneNumbers.format(r.number) + " · " else "") +
+                                "${callTypeLabel(r.lastType)} ${Fmt.dateTime(r.lastTime)}" +
+                                if (r.count > 1) " · ${r.count}회" else "",
+                            caseCount = store.linksForNumber(r.number).size,
+                            onToggle = { toggle(r.number, r.name) },
                         )
-                        Column(Modifier.weight(1f)) {
+                    }
+                } else {
+                    if (shownContacts.isNullOrEmpty()) {
+                        item {
                             Text(
-                                r.name ?: PhoneNumbers.format(r.number),
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                (if (r.name != null) PhoneNumbers.format(r.number) + " · " else "") +
-                                    "${callTypeLabel(r.lastType)} ${Fmt.dateTime(r.lastTime)}" +
-                                    if (r.count > 1) " · ${r.count}회" else "",
-                                style = MaterialTheme.typography.bodyMedium,
+                                if (filter.isBlank()) "번호가 저장된 연락처가 없어요." else "찾는 연락처가 없어요.",
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        if (caseCount > 0) {
-                            Tag(
-                                "사건 ${caseCount}건",
-                                MaterialTheme.colorScheme.secondaryContainer,
-                                MaterialTheme.colorScheme.onSecondaryContainer,
-                                Modifier.padding(end = 8.dp),
+                                modifier = Modifier.padding(24.dp),
                             )
                         }
                     }
+                    items(shownContacts.orEmpty(), key = { "p-" + it.name + "|" + it.number }) { c ->
+                        PickRow(
+                            checked = c.number in selected,
+                            title = c.name,
+                            sub = PhoneNumbers.format(c.number) + (c.label?.let { " · $it" } ?: ""),
+                            caseCount = store.linksForNumber(c.number).size,
+                            onToggle = { toggle(c.number, c.name) },
+                        )
+                    }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PickRow(
+    checked: Boolean,
+    title: String,
+    sub: String,
+    caseCount: Int,
+    onToggle: () -> Unit,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+    ) {
+        Checkbox(checked = checked, onCheckedChange = { onToggle() })
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(sub, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (caseCount > 0) {
+            Tag(
+                "사건 ${caseCount}건",
+                MaterialTheme.colorScheme.secondaryContainer,
+                MaterialTheme.colorScheme.onSecondaryContainer,
+                Modifier.padding(end = 8.dp),
+            )
         }
     }
 }

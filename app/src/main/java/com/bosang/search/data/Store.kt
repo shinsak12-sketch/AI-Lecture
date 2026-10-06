@@ -3,6 +3,7 @@ package com.bosang.search.data
 import android.content.Context
 import androidx.compose.runtime.mutableIntStateOf
 import com.bosang.search.core.CaseNumber
+import com.bosang.search.core.Hangul
 import com.bosang.search.core.MatchMethod
 import com.bosang.search.core.PhoneNumbers
 import com.bosang.search.core.RecordingMatch
@@ -60,7 +61,7 @@ class Store private constructor(private val file: File) {
         val digits = query.filter { it.isDigit() }
         val text = query.trim()
         return registeredNumbers().filter { n ->
-            (digits.length >= 3 && n.contains(digits)) || (text.isNotEmpty() && nameOf(n)?.contains(text) == true)
+            (digits.length >= 3 && n.contains(digits)) || (text.isNotEmpty() && nameOf(n)?.let { Hangul.matches(it, text) } == true)
         }
     }
 
