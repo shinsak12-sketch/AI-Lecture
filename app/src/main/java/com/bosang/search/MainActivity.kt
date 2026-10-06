@@ -36,6 +36,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         com.bosang.search.call.CallAssistService.sync(this)
+        com.bosang.search.remind.Reminders.sync(this)
         resumeTick.intValue = resumeTick.intValue + 1
     }
 
@@ -44,7 +45,17 @@ class MainActivity : ComponentActivity() {
         val i = intent ?: return
         val case = i.getStringExtra("case")
         val number = i.getStringExtra("number")
+        // 통화 끝난 뒤 "약속도 잡았어요" → 약속 쓰기를 아래에 깔고 특이사항부터
+        ExternalNav.under = if (i.getBooleanExtra("appt", false) && i.getStringExtra("nav") == "issue") {
+            Screen.ApptEdit(caseNo = case, number = number, callTime = i.getLongExtra("time", 0L).takeIf { it > 0 })
+        } else null
         ExternalNav.pending.value = when (i.getStringExtra("nav")) {
+            "appt" -> Screen.ApptEdit(
+                apptId = i.getStringExtra("id"),
+                caseNo = case,
+                number = number,
+                callTime = i.getLongExtra("time", 0L).takeIf { it > 0 },
+            )
             "issue" -> if (number != null) {
                 val time = i.getLongExtra("time", 0L)
                 Screen.IssueEdit(

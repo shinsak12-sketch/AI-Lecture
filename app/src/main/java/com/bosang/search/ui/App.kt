@@ -54,6 +54,9 @@ sealed interface Screen {
         val source: IssueSource? = null,
         val kind: IssueKind? = null,
     ) : Screen
+    /** 약속: 새로 쓰면 id 없음 */
+    data class ApptEdit(val apptId: String? = null, val caseNo: String? = null, val number: String? = null, val callTime: Long? = null) : Screen
+    data class RepairEdit(val caseNo: String, val repairId: String? = null) : Screen
     data class Album(val caseNo: String) : Screen
     data class Photo(val ref: String, val photoId: String?) : Screen
 }
@@ -61,6 +64,8 @@ sealed interface Screen {
 /** 앱 밖(통화 끝난 뒤 창)에서 열어 달라고 한 화면 */
 object ExternalNav {
     val pending = mutableStateOf<Screen?>(null)
+    /** pending 아래에 깔 화면 (예: 약속 → 그 위에 특이사항) */
+    var under: Screen? = null
     /** 위젯 검색칸을 눌러 들어옴 → 홈 검색칸에 바로 커서 */
     val focusSearch = mutableStateOf(false)
 }
@@ -130,7 +135,12 @@ fun App(resumeTick: Int) {
     LaunchedEffect(ExternalNav.pending.value) {
         val next = ExternalNav.pending.value ?: return@LaunchedEffect
         ExternalNav.pending.value = null
-        if (next == Screen.Home || next == Screen.Settings) stack = listOf(next) else push(next)
+        val under = ExternalNav.under
+        ExternalNav.under = null
+        if (next == Screen.Home || next == Screen.Settings) stack = listOf(next) else {
+            under?.let { push(it) }
+            push(next)
+        }
     }
     BackHandler(enabled = stack.size == 1 && stack.first() == Screen.Settings) { tab(Tab.CASES) }
 
@@ -168,6 +178,7 @@ fun App(resumeTick: Int) {
                     resumeTick = resumeTick,
                     onOpenCase = { push(Screen.Case(it)) },
                     onOpenPerson = { push(Screen.Person(it)) },
+                    onAppt = { push(Screen.ApptEdit(apptId = it)) },
                     onSettings = { tab(Tab.SETTINGS) },
                 )
                 Screen.Settings -> SettingsScreen(store = store, data = data, resumeTick = resumeTick)
@@ -190,6 +201,8 @@ fun App(resumeTick: Int) {
                     onAddPeople = { push(Screen.Register(caseNo = s.caseNo)) },
                     onIssue = { id, src -> push(Screen.IssueEdit(s.caseNo, issueId = id, source = src)) },
                     onAlbum = { push(Screen.Album(s.caseNo)) },
+                    onAppt = { id, number, time -> push(Screen.ApptEdit(id, s.caseNo, number, time)) },
+                    onRepair = { id -> push(Screen.RepairEdit(s.caseNo, id)) },
                     onPhoto = { ref, id -> push(Screen.Photo(ref, id)) },
                 )
                 is Screen.Person -> PersonScreen(
@@ -203,6 +216,7 @@ fun App(resumeTick: Int) {
                     onRegister = { push(Screen.Register(numbers = listOf(s.number))) },
                     onIssue = { id, src -> push(Screen.IssueEdit(null, number = s.number, issueId = id, source = src)) },
                     onPhoto = { ref -> push(Screen.Photo(ref, null)) },
+                    onAppt = { id, time -> push(Screen.ApptEdit(id, null, s.number, time)) },
                 )
                 is Screen.IssueEdit -> IssueEditorScreen(
                     store = store,
@@ -215,6 +229,15 @@ fun App(resumeTick: Int) {
                     source = s.source,
                     onBack = { pop() },
                 )
+                is Screen.ApptEdit -> ApptEditScreen(
+                    store = store,
+                    apptId = s.apptId,
+                    caseNo = s.caseNo,
+                    number = s.number,
+                    callTime = s.callTime,
+                    onBack = { pop() },
+                )
+                is Screen.RepairEdit -> RepairEditScreen(store = store, repairId = s.repairId, caseNo = s.caseNo, onBack = { pop() })
                 is Screen.Album -> AlbumClassifyScreen(store = store, data = data, caseNo = s.caseNo, onBack = { pop() })
                 is Screen.Photo -> PhotoViewScreen(store = store, ref = s.ref, photoId = s.photoId, onBack = { pop() })
             }

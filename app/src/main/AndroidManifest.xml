@@ -18,6 +18,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 약속 알림을 정확한 시각에 -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- 카메라 앱에 사진 찍기를 맡김 (카메라 권한은 필요 없음) -->
@@ -81,6 +84,11 @@
             android:taskAffinity=".quick"
             android:theme="@style/Theme.BosangSearch.Popup"
             android:windowSoftInputMode="adjustResize|stateVisible" />
+
+        <!-- 약속 · 입고 알림 -->
+        <receiver
+            android:name=".remind.ReminderReceiver"
+            android:exported="false" />
 
         <!-- 통화 끝난 뒤 [예] → 사고번호 · 관계 · 특이사항 고르는 작은 창 -->
         <activity

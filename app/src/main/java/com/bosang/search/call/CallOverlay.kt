@@ -132,14 +132,14 @@ object CallOverlay {
 
         // 묻기
         card.addView(
-            text(ctx, if (links.isEmpty()) "이 통화를 사건에 연결할까요?" else "특이사항이 있었나요?", 16f, 2, INK).apply {
+            text(ctx, if (links.isEmpty()) "이 통화를 사건에 연결할까요?" else "특이사항이나 약속이 있었나요?", 16f, 2, INK).apply {
                 setPadding(ctx.dp(4f), ctx.dp(if (links.isEmpty()) 16f else 8f), 0, ctx.dp(4f))
             },
         )
         card.addView(
             text(
                 ctx,
-                if (links.isEmpty()) "예를 누르면 사고번호 · 관계 · 특이사항을 정해요" else "예를 누르면 구분을 골라 바로 적어요",
+                if (links.isEmpty()) "예를 누르면 사고번호 · 관계 · 특이사항 · 약속을 정해요" else "예를 누르면 특이사항 구분이나 약속을 골라 바로 적어요",
                 12.5f,
                 1,
                 INK2,

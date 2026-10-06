@@ -76,6 +76,7 @@ fun PersonScreen(
     onRegister: () -> Unit,
     onIssue: (issueId: String?, source: IssueSource?) -> Unit,
     onPhoto: (ref: String) -> Unit,
+    onAppt: (apptId: String?, callTime: Long?) -> Unit,
 ) {
     val c = B.c
     val ctx = LocalContext.current
@@ -166,6 +167,10 @@ fun PersonScreen(
                                             clipboard.setText(AnnotatedString(formatted))
                                             Toast.makeText(ctx, "번호를 복사했어요", Toast.LENGTH_SHORT).show()
                                         }
+                                        MenuItem("약속 추가", Ic.calendar) {
+                                            moreMenu = false
+                                            onAppt(null, null)
+                                        }
                                         MenuItem("통화녹음 다시 찾기", Ic.refresh) {
                                             moreMenu = false
                                             RecordingIndex.invalidate()
@@ -249,6 +254,16 @@ fun PersonScreen(
             )
         }
 
+        if (rq.isEmpty) {
+            planSection(
+                store = store,
+                appts = store.apptsForNumber(number),
+                repairs = emptyList(),
+                onAppt = { a -> onAppt(a?.id, null) },
+                onRepair = null,
+            )
+        }
+
         issuesSection(
             issues = issues,
             nameOf = nameOf,
@@ -318,6 +333,10 @@ fun PersonScreen(
                 add(Option("특이사항 남기기", Ic.pen) {
                     recordMenu = null
                     onIssue(null, item.toSource())
+                })
+                add(Option("약속 추가", Ic.calendar) {
+                    recordMenu = null
+                    onAppt(null, item.timeMillis)
                 })
                 when (item) {
                     is TimelineItem.Sms -> add(Option("문자 보내기", Ic.msg) {

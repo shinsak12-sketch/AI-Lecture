@@ -83,6 +83,7 @@ object Ic {
     val car by lazy { line("car", "M5 16.5h14M4 16.5v-4l2-5.2A2 2 0 0 1 7.9 6h8.2a2 2 0 0 1 1.9 1.3l2 5.2v4", "M4 12.5h16", circle(7.5f, 16.8f, 1.8f), circle(16.5f, 16.8f, 1.8f)) }
     val won by lazy { line("won", "M4 6l3.5 12L12 7l4.5 11L20 6M3 11h18") }
     val quote by lazy { line("quote", "M20 15.5a2 2 0 0 1-2 2H8l-4 3.5V5.5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z", "M8.5 9h7M8.5 12.5h4.5") }
+    val calendar by lazy { line("calendar", "M5.5 5h13a1.5 1.5 0 0 1 1.5 1.5v12a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18.5v-12A1.5 1.5 0 0 1 5.5 5z", "M4 10h16M8.5 3v4M15.5 3v4") }
     val pin by lazy { line("pin", "M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z", circle(12f, 10f, 2.4f)) }
     val note by lazy { line("note", "M6 3.5h9l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19V5a1.5 1.5 0 0 1 1-1.5z", "M14.5 3.5V8h4.5M8.5 12.5h7M8.5 16h4.5") }
     val pen by lazy { line("pen", "M4 20l1.2-4.6L16.5 4.1a2.1 2.1 0 0 1 3 3L8.2 18.4z", "M14.5 6l3.5 3.5") }

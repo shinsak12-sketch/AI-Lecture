@@ -66,6 +66,7 @@ fun HomeScreen(
     resumeTick: Int,
     onOpenCase: (String) -> Unit,
     onOpenPerson: (String) -> Unit,
+    onAppt: (String) -> Unit,
     onSettings: () -> Unit,
 ) {
     val c = B.c
@@ -190,6 +191,7 @@ fun HomeScreen(
                 )
             }
         } else {
+            homePlanSection(store, onAppt = { onAppt(it.id) }, onCase = onOpenCase)
             item(key = "all-head") {
                 SectionHeader("전체 사건", cases.size, modifier = Modifier.padding(top = 10.dp)) {
                     HeaderAction(if (byRecent) "최근 연락순" else "사고번호순", icon = Ic.sort) { byRecent = !byRecent }

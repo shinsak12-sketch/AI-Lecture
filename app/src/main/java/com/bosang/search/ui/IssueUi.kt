@@ -792,7 +792,7 @@ fun CircleBtn(icon: ImageVector, desc: String, size: Dp = 40.dp, onClick: () -> 
 }
 
 @Composable
-private fun FieldLabel(text: String, hint: String? = null) {
+internal fun FieldLabel(text: String, hint: String? = null) {
     Row(Modifier.fillMaxWidth().padding(start = 22.dp, end = 22.dp, top = 16.dp, bottom = 8.dp)) {
         Text(text, style = ts(12.5f, W8, tracking = 0.03f), color = B.c.ink2, modifier = Modifier.weight(1f))
         if (hint != null) Text(hint, style = ts(12f, W7), color = B.c.ink3)
@@ -800,7 +800,7 @@ private fun FieldLabel(text: String, hint: String? = null) {
 }
 
 @Composable
-private fun PersonPick(name: String?, number: String, label: String, role: String, on: Boolean, onClick: () -> Unit) {
+internal fun PersonPick(name: String?, number: String, label: String, role: String, on: Boolean, onClick: () -> Unit) {
     val c = B.c
     val shape = RoundedCornerShape(20.dp)
     Row(
@@ -823,7 +823,7 @@ private fun PersonPick(name: String?, number: String, label: String, role: Strin
 }
 
 @Composable
-private fun SelectChip(text: String, on: Boolean, big: Boolean = false, onClick: () -> Unit) {
+internal fun SelectChip(text: String, on: Boolean, big: Boolean = false, onClick: () -> Unit) {
     val c = B.c
     val shape = RoundedCornerShape(11.dp)
     Box(
@@ -891,7 +891,7 @@ private fun RatioBar(label: String, value: Int?, accent: Boolean, onValue: (Int)
 }
 
 @Composable
-private fun DiffNote(text: String) {
+internal fun DiffNote(text: String) {
     val c = B.c
     Row(
         verticalAlignment = Alignment.CenterVertically,

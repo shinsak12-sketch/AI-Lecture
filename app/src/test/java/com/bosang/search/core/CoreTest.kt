@@ -283,3 +283,37 @@ class RecordQueryTest {
         assertTrue(q("1234").labels.isEmpty())
     }
 }
+
+class ScheduleRulesTest {
+    private val d = java.time.LocalDate.of(2026, 10, 1)
+
+    @Test fun 입고_며칠째와_지연() {
+        assertEquals(1, RepairRule.dayCount(d, d))
+        assertEquals(6, RepairRule.dayCount(d, d.plusDays(5)))
+        // 예정일 없이 기준 7일 → 7일째(10/7)까지는 괜찮고 10/8부터 지연
+        assertEquals(0, RepairRule.overdueDays(d, null, 7, d.plusDays(6)))
+        assertEquals(1, RepairRule.overdueDays(d, null, 7, d.plusDays(7)))
+        // 예정일 10/5
+        val out = java.time.LocalDate.of(2026, 10, 5)
+        assertEquals(0, RepairRule.overdueDays(d, out, 7, out))
+        assertEquals(3, RepairRule.overdueDays(d, out, 7, out.plusDays(3)))
+    }
+
+    @Test fun 상태_글자() {
+        val out = java.time.LocalDate.of(2026, 10, 5)
+        assertEquals("입고 3일째 · 출고 D-2", RepairRule.label(d, out, 7, null, d.plusDays(2)))
+        assertEquals("입고 5일째 · 오늘 출고 예정", RepairRule.label(d, out, 7, null, out))
+        assertEquals("입고 8일째 · 예정 3일 지남", RepairRule.label(d, out, 7, null, out.plusDays(3)))
+        assertEquals("출고 완료 (6일)", RepairRule.label(d, out, 7, d.plusDays(5), d.plusDays(9)))
+    }
+
+    @Test fun 알림_시각() {
+        val at = 10_000_000L * 60_000L
+        val now = at - 45 * 60_000L
+        val t = ReminderRule.times(at, listOf(1440, 60, 30, 0), now)
+        assertEquals(listOf(30, 0), t.map { it.first })
+        assertEquals("1일 전", ReminderRule.label(1440))
+        assertEquals("1시간 전", ReminderRule.label(60))
+        assertEquals("정시", ReminderRule.label(0))
+    }
+}

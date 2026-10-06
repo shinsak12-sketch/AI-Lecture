@@ -39,6 +39,8 @@ class Store private constructor(private val file: File) {
     private val recent = mutableListOf<String>()
     private val issues = mutableListOf<Issue>()
     private val photos = mutableListOf<CasePhoto>()
+    private val appts = mutableListOf<Appointment>()
+    private val repairs = mutableListOf<Repair>()
     private var callAssistOn = false
     private var showNoticesOn = false
     private val quietNumbers = mutableSetOf<String>()
@@ -125,6 +127,57 @@ class Store private constructor(private val file: File) {
         changed()
     }
 
+    // ---------- 일정 ----------
+    /** 사건 화면: 그 사건에서 잡은 약속 + 그 사건 사람들과의 약속, 시간순 */
+    @Synchronized fun apptsForCase(caseNo: String): List<Appointment> {
+        val numbers = links.filter { it.caseNo == caseNo }.map { it.number }.toSet()
+        return appts.filter { it.caseNo == caseNo || (it.caseNo == null && it.number in numbers) }.sortedBy { it.at }
+    }
+
+    @Synchronized fun apptsForNumber(number: String): List<Appointment> = appts.filter { it.number == number }.sortedBy { it.at }
+
+    /** 다가오는 약속 (안 끝난 것, from 이후) */
+    @Synchronized fun upcomingAppts(from: Long): List<Appointment> = appts.filter { !it.done && it.at >= from }.sortedBy { it.at }
+
+    @Synchronized fun allAppts(): List<Appointment> = appts.toList()
+
+    @Synchronized fun appt(id: String): Appointment? = appts.firstOrNull { it.id == id }
+
+    fun saveAppt(a: Appointment) {
+        synchronized(this) {
+            val i = appts.indexOfFirst { it.id == a.id }
+            if (i >= 0) appts[i] = a else appts.add(a)
+        }
+        changed()
+    }
+
+    fun deleteAppt(id: String) {
+        synchronized(this) { appts.removeAll { it.id == id } }
+        changed()
+    }
+
+    // ---------- 입고 · 출고 ----------
+    @Synchronized fun repairsForCase(caseNo: String): List<Repair> =
+        repairs.filter { it.caseNo == caseNo }.sortedWith(compareBy<Repair> { !it.open }.thenByDescending { it.inDate })
+
+    /** 아직 출고 안 된 차량 */
+    @Synchronized fun openRepairs(): List<Repair> = repairs.filter { it.open }.sortedBy { it.inDate }
+
+    @Synchronized fun repair(id: String): Repair? = repairs.firstOrNull { it.id == id }
+
+    fun saveRepair(r: Repair) {
+        synchronized(this) {
+            val i = repairs.indexOfFirst { it.id == r.id }
+            if (i >= 0) repairs[i] = r else repairs.add(r)
+        }
+        changed()
+    }
+
+    fun deleteRepair(id: String) {
+        synchronized(this) { repairs.removeAll { it.id == id } }
+        changed()
+    }
+
     // ---------- 설정 ----------
     /** 캐치콜 · 매너콜 같은 통화 알림 문자도 보일지 (기본: 숨김) */
     @Synchronized fun showNotices(): Boolean = showNoticesOn
@@ -198,6 +251,8 @@ class Store private constructor(private val file: File) {
             issues.removeAll { it.caseNo == caseNo && it.subject == null }
             issues.replaceAll { if (it.caseNo == caseNo) it.copy(caseNo = null) else it }
             photos.removeAll { it.caseNo == caseNo }
+            repairs.removeAll { it.caseNo == caseNo }
+            appts.replaceAll { if (it.caseNo == caseNo) it.copy(caseNo = null) else it }
             recent.remove("c:$caseNo")
         }
         changed()
@@ -207,6 +262,7 @@ class Store private constructor(private val file: File) {
     fun clearAll() {
         synchronized(this) {
             links.clear(); names.clear(); recCache.clear(); recent.clear(); issues.clear(); photos.clear()
+            appts.clear(); repairs.clear()
         }
         changed()
     }
@@ -234,7 +290,10 @@ class Store private constructor(private val file: File) {
     private fun changed() {
         synchronized(this) { save() }
         version.intValue = version.intValue + 1
-        appContext?.let { com.bosang.search.widget.SearchWidget.refresh(it) }
+        appContext?.let {
+            com.bosang.search.widget.SearchWidget.refresh(it)
+            com.bosang.search.remind.Reminders.sync(it)
+        }
     }
 
     private fun save() {
@@ -253,6 +312,8 @@ class Store private constructor(private val file: File) {
         root.put("recent", JSONArray(recent))
         root.put("issues", JSONArray().apply { issues.forEach { put(it.toJson()) } })
         root.put("photos", JSONArray().apply { photos.forEach { put(it.toJson()) } })
+        root.put("appts", JSONArray().apply { appts.forEach { put(it.toJson()) } })
+        root.put("repairs", JSONArray().apply { repairs.forEach { put(it.toJson()) } })
         root.put("prefs", JSONObject().put("callAssist", callAssistOn).put("notices", showNoticesOn).put("quiet", JSONArray(quietNumbers.toList())))
         val tmp = File(file.parentFile, file.name + ".tmp")
         tmp.writeText(root.toString())
@@ -289,6 +350,12 @@ class Store private constructor(private val file: File) {
             root.optJSONArray("photos")?.let { a ->
                 for (i in 0 until a.length()) runCatching { CasePhoto.fromJson(a.getJSONObject(i)) }.getOrNull()?.let { photos.add(it) }
             }
+            root.optJSONArray("appts")?.let { a ->
+                for (i in 0 until a.length()) Appointment.fromJson(a.getJSONObject(i))?.let { appts.add(it) }
+            }
+            root.optJSONArray("repairs")?.let { a ->
+                for (i in 0 until a.length()) Repair.fromJson(a.getJSONObject(i))?.let { repairs.add(it) }
+            }
             callAssistOn = root.optJSONObject("prefs")?.optBoolean("callAssist") ?: false
             showNoticesOn = root.optJSONObject("prefs")?.optBoolean("notices") ?: false
             root.optJSONObject("prefs")?.optJSONArray("quiet")?.let { a -> for (i in 0 until a.length()) quietNumbers.add(a.getString(i)) }
@@ -296,6 +363,7 @@ class Store private constructor(private val file: File) {
             // 파일이 깨졌으면 백업해 두고 빈 상태로 시작
             file.renameTo(File(file.parentFile, "store.broken.${System.currentTimeMillis()}.json"))
             links.clear(); names.clear(); recCache.clear(); recent.clear(); issues.clear(); photos.clear()
+            appts.clear(); repairs.clear()
         }
     }
 

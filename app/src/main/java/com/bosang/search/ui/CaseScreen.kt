@@ -93,6 +93,8 @@ fun CaseScreen(
     onIssue: (issueId: String?, source: IssueSource?) -> Unit,
     onAlbum: () -> Unit,
     onPhoto: (ref: String, photoId: String?) -> Unit,
+    onAppt: (apptId: String?, number: String?, callTime: Long?) -> Unit,
+    onRepair: (repairId: String?) -> Unit,
 ) {
     val c = B.c
     val ctx = LocalContext.current
@@ -235,6 +237,14 @@ fun CaseScreen(
                                             moreMenu = false
                                             onAddPeople()
                                         }
+                                        MenuItem("약속 추가", Ic.calendar) {
+                                            moreMenu = false
+                                            onAppt(null, null, null)
+                                        }
+                                        MenuItem("입고 등록", Ic.car) {
+                                            moreMenu = false
+                                            onRepair(null)
+                                        }
                                         MenuItem("통화녹음 다시 찾기", Ic.refresh) {
                                             moreMenu = false
                                             RecordingIndex.invalidate()
@@ -376,6 +386,16 @@ fun CaseScreen(
             )
         }
 
+        if (rq.isEmpty) {
+            planSection(
+                store = store,
+                appts = store.apptsForCase(caseNo),
+                repairs = store.repairsForCase(caseNo),
+                onAppt = { a -> onAppt(a?.id, null, null) },
+                onRepair = { r -> onRepair(r?.id) },
+            )
+        }
+
         issuesSection(
             issues = issues,
             nameOf = nameOf,
@@ -471,6 +491,10 @@ fun CaseScreen(
                 add(Option("특이사항 남기기", Ic.pen) {
                     recordMenu = null
                     onIssue(null, item.toSource())
+                })
+                add(Option("약속 추가", Ic.calendar) {
+                    recordMenu = null
+                    onAppt(null, item.number, item.timeMillis)
                 })
                 when (item) {
                     is TimelineItem.Sms -> add(Option("문자 보내기", Ic.msg) {

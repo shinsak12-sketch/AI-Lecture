@@ -93,7 +93,7 @@ class CallOverlayTest {
         CallOverlay.showAfter(ctx, call, force = true)
         idle()
         val root = CallOverlay.afterView()!!
-        assertNotNull(findText(root, "특이사항이 있었나요?"))
+        assertNotNull(findText(root, "특이사항이나 약속이 있었나요?"))
         assertNull(findText(root, "이 통화를 사건에 연결할까요?"))
     }
 

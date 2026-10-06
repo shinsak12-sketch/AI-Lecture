@@ -96,13 +96,24 @@ class PostCallActivity : ComponentActivity() {
         )
         setContent {
             BosangTheme {
-                PostCallSheet(Store.get(this), call, onClose = { finish() }, onDone = { caseNo, kind -> done(call, caseNo, kind) })
+                PostCallSheet(Store.get(this), call, onClose = { finish() }, onDone = { caseNo, kind, appt -> done(call, caseNo, kind, appt) })
             }
         }
     }
 
-    private fun done(call: PostCall, caseNo: String, kind: IssueKind?) {
-        if (kind != null) {
+    private fun done(call: PostCall, caseNo: String, kind: IssueKind?, appt: Boolean) {
+        if (kind == null && appt) {
+            runCatching {
+                startActivity(
+                    Intent(this, MainActivity::class.java)
+                        .putExtra("nav", "appt")
+                        .putExtra("case", caseNo)
+                        .putExtra("number", call.number)
+                        .putExtra("time", call.timeMillis)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                )
+            }
+        } else if (kind != null) {
             runCatching {
                 startActivity(
                     Intent(this, MainActivity::class.java)
@@ -112,6 +123,7 @@ class PostCallActivity : ComponentActivity() {
                         .putExtra("time", call.timeMillis)
                         .putExtra("len", call.lengthMs)
                         .putExtra("kind", kind.name)
+                        .putExtra("appt", appt)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
                 )
             }
@@ -136,7 +148,7 @@ class PostCallActivity : ComponentActivity() {
 private class PostCall(val number: String, val name: String?, val timeMillis: Long, val lengthMs: Long, val type: Int)
 
 @Composable
-private fun PostCallSheet(store: Store, call: PostCall, onClose: () -> Unit, onDone: (String, IssueKind?) -> Unit) {
+private fun PostCallSheet(store: Store, call: PostCall, onClose: () -> Unit, onDone: (String, IssueKind?, Boolean) -> Unit) {
     val c = B.c
     val thisYear = LocalDate.now().year
     val links = remember { store.linksForNumber(call.number) }
@@ -145,6 +157,7 @@ private fun PostCallSheet(store: Store, call: PostCall, onClose: () -> Unit, onD
     var serial by remember { mutableStateOf(first?.caseNo?.substringAfter('-') ?: "") }
     var role by remember { mutableStateOf(first?.role ?: "") }
     var kind by remember { mutableStateOf<IssueKind?>(null) }
+    var appt by remember { mutableStateOf(false) }
     val caseNo = CaseNumber.of(year, serial)
     val valid = CaseNumber.isValid(caseNo)
     val name = store.nameOf(call.number) ?: call.name?.takeIf { it.isNotBlank() }
@@ -280,8 +293,34 @@ private fun PostCallSheet(store: Store, call: PostCall, onClose: () -> Unit, onD
                             }
                         }
                     }
+                    SheetLabel("약속 잡았나요? (선택)")
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    ) {
+                        Row(
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .weight(1f)
+                                .press(scale = 0.97f) { appt = !appt }
+                                .height(46.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(if (appt) c.brandTint else c.card)
+                                .then(if (appt) Modifier.border(1.5.dp, c.brand, RoundedCornerShape(14.dp)) else Modifier),
+                        ) {
+                            Icon(Ic.calendar, null, tint = c.brand, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("면담 · 방문 · 전화 약속 잡음", style = ts(14f, W7), color = if (appt) c.brand else c.ink)
+                        }
+                    }
                     Text(
-                        if (kind == null) "고르지 않으면 연결만 해요" else "연결한 뒤 ${kind?.label} 특이사항을 적는 화면으로 가요",
+                        when {
+                            kind != null && appt -> "연결한 뒤 ${kind?.label} 특이사항을 쓰고, 이어서 약속을 적어요"
+                            kind != null -> "연결한 뒤 ${kind?.label} 특이사항을 적는 화면으로 가요"
+                            appt -> "연결한 뒤 약속 날짜 · 시각을 적는 화면으로 가요"
+                            else -> "고르지 않으면 연결만 해요"
+                        },
                         style = ts(12.5f, W4),
                         color = c.ink3,
                         modifier = Modifier.padding(start = 22.dp, end = 22.dp, top = 10.dp, bottom = 6.dp),
@@ -299,6 +338,7 @@ private fun PostCallSheet(store: Store, call: PostCall, onClose: () -> Unit, onD
                             !valid -> "사고번호 8자리"
                             !roleReady(role) -> "관계를 골라 주세요"
                             kind != null -> "연결하고 특이사항 쓰기"
+                            appt -> "연결하고 약속 적기"
                             else -> "연결하기"
                         },
                         icon = if (ready) Ic.link else null,
@@ -307,7 +347,7 @@ private fun PostCallSheet(store: Store, call: PostCall, onClose: () -> Unit, onD
                     ) {
                         store.upsert(caseNo, listOf(Triple(call.number, role.trim(), name)))
                         store.touchRecent("c:$caseNo")
-                        onDone(caseNo, kind)
+                        onDone(caseNo, kind, appt)
                     }
                 }
             }
