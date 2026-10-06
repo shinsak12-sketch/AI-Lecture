@@ -38,7 +38,29 @@ object CallOverlay {
     private val main = Handler(Looper.getMainLooper())
     private var bubble: View? = null
     private var after: View? = null
-    private val hideAfterTask = Runnable { after?.let { remove(it.context, it) }; after = null }
+    private val hideAfterTask = Runnable { closeAfterNow() }
+
+    /** 메인 스레드면 바로, 아니면 메인으로 넘겨서. (예전엔 늘 미뤄서, 새 창을 띄운 직후 "이전 창 닫기"가 새 창을 닫아버렸음) */
+    private fun onMain(block: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) block() else main.post(block)
+    }
+
+    private fun closeBubbleNow() {
+        val v = bubble
+        bubble = null
+        v?.let { remove(it.context, it) }
+    }
+
+    private fun closeAfterNow() {
+        main.removeCallbacks(hideAfterTask)
+        val v = after
+        after = null
+        v?.let { remove(it.context, it) }
+    }
+
+    /** 테스트 · 진단용 */
+    fun bubbleShowing(): Boolean = bubble != null
+    fun afterShowing(): Boolean = after != null
 
     // 색 (시안 v3)
     private const val INK = 0xFF0C1222.toInt()
@@ -63,21 +85,17 @@ object CallOverlay {
     // ───────────── 통화 중 ─────────────
 
     fun showBubble(ctx: Context, number: String) {
-        main.post {
+        onMain {
             val store = Store.get(ctx)
-            if (store.linksForNumber(number).isEmpty() && store.issuesForNumber(number).isEmpty()) return@post
-            hideBubble(ctx)
+            if (store.linksForNumber(number).isEmpty() && store.issuesForNumber(number).isEmpty()) return@onMain
+            closeBubbleNow()
             val v = bubbleCard(ctx, store, number)
-            add(ctx, v, Gravity.TOP, ctx.dp(200f))
-            bubble = v
+            if (add(ctx, v, Gravity.TOP, ctx.dp(200f))) bubble = v
         }
     }
 
     fun hideBubble(ctx: Context) {
-        main.post {
-            bubble?.let { remove(ctx, it) }
-            bubble = null
-        }
+        onMain { closeBubbleNow() }
     }
 
     private fun bubbleCard(ctx: Context, store: Store, number: String): View {
@@ -165,17 +183,16 @@ object CallOverlay {
 
     /** 접으면 오른쪽에 작은 동그라미, 누르면 다시 펼침 */
     private fun collapse(ctx: Context, store: Store, number: String) {
-        bubble?.let { remove(ctx, it) }
+        closeBubbleNow()
         val count = relatedIssues(store, number).size
         val root = FrameLayout(ctx).apply { setPadding(ctx.dp(6f), ctx.dp(6f), ctx.dp(6f), ctx.dp(6f)) }
         val dot = FrameLayout(ctx).apply {
             background = GradientDrawable(GradientDrawable.Orientation.TL_BR, intArrayOf(0xFF7A9CFF.toInt(), 0xFF2F55E6.toInt())).apply { shape = GradientDrawable.OVAL }
             elevation = ctx.dp(10f).toFloat()
             setOnClickListener {
-                bubble?.let { b -> remove(ctx, b) }
+                closeBubbleNow()
                 val v = bubbleCard(ctx, store, number)
-                add(ctx, v, Gravity.TOP, ctx.dp(200f))
-                bubble = v
+                if (add(ctx, v, Gravity.TOP, ctx.dp(200f))) bubble = v
             }
         }
         dot.addView(
@@ -194,32 +211,27 @@ object CallOverlay {
                 FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ctx.dp(18f), Gravity.TOP or Gravity.END),
             )
         }
-        add(ctx, root, Gravity.TOP or Gravity.END, ctx.dp(170f), width = ViewGroup.LayoutParams.WRAP_CONTENT)
-        bubble = root
+        if (add(ctx, root, Gravity.TOP or Gravity.END, ctx.dp(170f), width = ViewGroup.LayoutParams.WRAP_CONTENT)) bubble = root
     }
 
     // ───────────── 통화 후 ─────────────
 
     fun showAfter(ctx: Context, call: CallEntry, force: Boolean = false) {
-        main.post {
+        onMain {
             val store = Store.get(ctx)
             val links = store.linksForNumber(call.number)
-            if (!force && links.isEmpty() && store.isQuiet(call.number)) return@post
-            hideAfter(ctx)
+            if (!force && links.isEmpty() && store.isQuiet(call.number)) return@onMain
+            closeAfterNow()
             val v = afterCard(ctx, store, call)
-            add(ctx, v, Gravity.BOTTOM, ctx.dp(16f))
-            after = v
-            main.removeCallbacks(hideAfterTask)
-            main.postDelayed(hideAfterTask, 90_000)
+            if (add(ctx, v, Gravity.BOTTOM, ctx.dp(16f))) {
+                after = v
+                main.postDelayed(hideAfterTask, 90_000)
+            }
         }
     }
 
     fun hideAfter(ctx: Context) {
-        main.post {
-            main.removeCallbacks(hideAfterTask)
-            after?.let { remove(ctx, it) }
-            after = null
-        }
+        onMain { closeAfterNow() }
     }
 
     private fun afterCard(ctx: Context, store: Store, call: CallEntry): View {
@@ -347,7 +359,7 @@ object CallOverlay {
         hideBubble(ctx)
     }
 
-    private fun add(ctx: Context, v: View, gravity: Int, y: Int, width: Int = ViewGroup.LayoutParams.MATCH_PARENT) {
+    private fun add(ctx: Context, v: View, gravity: Int, y: Int, width: Int = ViewGroup.LayoutParams.MATCH_PARENT): Boolean {
         val p = WindowManager.LayoutParams(
             width,
             ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -358,9 +370,9 @@ object CallOverlay {
             this.gravity = gravity or if (width == ViewGroup.LayoutParams.MATCH_PARENT) Gravity.CENTER_HORIZONTAL else 0
             this.y = y
         }
-        runCatching { ctx.getSystemService(WindowManager::class.java).addView(v, p) }.onFailure {
+        return runCatching { ctx.getSystemService(WindowManager::class.java).addView(v, p) }.onFailure {
             ctx.getSharedPreferences("call", Context.MODE_PRIVATE).edit().putString("err", it.javaClass.simpleName + ": " + it.message).apply()
-        }
+        }.isSuccess
     }
 
     private fun remove(ctx: Context, v: View) {

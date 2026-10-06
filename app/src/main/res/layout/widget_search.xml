@@ -26,6 +26,7 @@
             android:src="@drawable/ic_launcher_foreground" />
 
         <TextView
+            android:id="@+id/w_query"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_marginStart="10dp"
@@ -37,13 +38,26 @@
             android:textSize="15sp" />
 
         <ImageView
+            android:id="@+id/w_icon"
             android:layout_width="20dp"
             android:layout_height="20dp"
             android:contentDescription="@string/widget_hint"
             android:src="@drawable/ic_widget_search" />
+
+        <ImageView
+            android:id="@+id/w_clear"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
+            android:background="@drawable/widget_chip"
+            android:contentDescription="지우기"
+            android:padding="7dp"
+            android:src="@drawable/ic_close"
+            android:tint="@color/w_ink2"
+            android:visibility="gone" />
     </LinearLayout>
 
     <TextView
+        android:id="@+id/w_label"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginStart="6dp"
