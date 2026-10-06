@@ -79,6 +79,25 @@ object Ic {
     val info by lazy { line("info", circle(12f, 12f, 9f), "M12 11v5.5M12 7.6v.2", width = 2f) }
     val chevron by lazy { line("chevron", "M9 5l7 7-7 7", width = 2.1f) }
 
+    val scale by lazy { line("scale", "M12 4v16M7 20h10M5 7h14", "M5 7l-2.5 6a2.5 2.5 0 0 0 5 0z", "M19 7l-2.5 6a2.5 2.5 0 0 0 5 0z") }
+    val car by lazy { line("car", "M5 16.5h14M4 16.5v-4l2-5.2A2 2 0 0 1 7.9 6h8.2a2 2 0 0 1 1.9 1.3l2 5.2v4", "M4 12.5h16", circle(7.5f, 16.8f, 1.8f), circle(16.5f, 16.8f, 1.8f)) }
+    val won by lazy { line("won", "M4 6l3.5 12L12 7l4.5 11L20 6M3 11h18") }
+    val quote by lazy { line("quote", "M20 15.5a2 2 0 0 1-2 2H8l-4 3.5V5.5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2z", "M8.5 9h7M8.5 12.5h4.5") }
+    val pin by lazy { line("pin", "M12 21s-6.5-5.6-6.5-11a6.5 6.5 0 0 1 13 0c0 5.4-6.5 11-6.5 11z", circle(12f, 10f, 2.4f)) }
+    val note by lazy { line("note", "M6 3.5h9l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 5 19V5a1.5 1.5 0 0 1 1-1.5z", "M14.5 3.5V8h4.5M8.5 12.5h7M8.5 16h4.5") }
+    val pen by lazy { line("pen", "M4 20l1.2-4.6L16.5 4.1a2.1 2.1 0 0 1 3 3L8.2 18.4z", "M14.5 6l3.5 3.5") }
+    val highlighter by lazy { line("hl", "M9 15l-3 3v2h4l3-3", "M9 15l6.5-10.5a1.8 1.8 0 0 1 2.6-.5l1.9 1.3a1.8 1.8 0 0 1 .4 2.6L13 17z") }
+    val eraser by lazy { line("eraser", "M8 20h12", "M5.5 15.5l9-9a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L12 19H8.5z", "M10 11l5 5") }
+    val image by lazy { line("img", "M7 4.5h10a3 3 0 0 1 3 3v9a3 3 0 0 1-3 3H7a3 3 0 0 1-3-3v-9a3 3 0 0 1 3-3z", circle(9f, 10f, 1.8f), "M20.5 15.5l-4.5-4.5-8.5 8.5") }
+    val camera by lazy { line("camera", "M4 8.5A2.5 2.5 0 0 1 6.5 6h1.8l1.4-2h4.6l1.4 2h1.8A2.5 2.5 0 0 1 20 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 17.5z", circle(12f, 12.8f, 3.6f)) }
+    val undo by lazy { line("undo", "M9 14L4.5 9.5 9 5", "M4.5 9.5H15a5 5 0 0 1 0 10h-3") }
+    val redo by lazy { line("redo", "M15 14l4.5-4.5L15 5", "M19.5 9.5H9a5 5 0 0 0 0 10h3") }
+    val share by lazy { line("share", "M12 15V3.5M7.5 8L12 3.5 16.5 8", "M5 12.5v5A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5v-5") }
+    val list by lazy { line("list", "M9 6.5h11M9 12h11M9 17.5h11", "M4 6.5l1 1 2-2M4 12l1 1 2-2M4 17.5l1 1 2-2") }
+    val moreV by lazy {
+        line("moreV", dots = listOf(circle(12f, 5.5f, 1.6f), circle(12f, 12f, 1.6f), circle(12f, 18.5f, 1.6f)))
+    }
+
     val play by lazy { solid("play", "M7 4.6v14.8a1 1 0 0 0 1.5.86l12.3-7.4a1 1 0 0 0 0-1.72L8.5 3.74A1 1 0 0 0 7 4.6z") }
     val pause by lazy {
         solid(

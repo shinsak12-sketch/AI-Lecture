@@ -188,3 +188,18 @@ class HangulTest {
         assertEquals("#", Hangul.indexOf(""))
     }
 }
+
+class MoneyTest {
+    @Test fun 요약() {
+        assertEquals("120만", Money.short(1_200_000))
+        assertEquals("1,234,567원", Money.short(1_234_567))
+        assertEquals("5,000원", Money.short(5_000))
+        assertEquals("1,000만", Money.short(10_000_000))
+    }
+
+    @Test fun 입력() {
+        assertEquals(1_240_000L, Money.parse("1,240,000"))
+        assertNull(Money.parse(""))
+        assertEquals("1,240,000", Money.comma(1_240_000))
+    }
+}

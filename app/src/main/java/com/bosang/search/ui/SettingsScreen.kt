@@ -1,6 +1,9 @@
 package com.bosang.search.ui
 
 import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -53,6 +56,23 @@ fun SettingsScreen(store: Store, data: PhoneData, resumeTick: Int) {
     LaunchedEffect(resumeTick, scan) {
         index = RecordingIndex.get(data, store)
     }
+    val assistOn = remember(ver) { store.callAssist() }
+    val phoneOk = remember(resumeTick, ver) { Perms.granted(ctx, Manifest.permission.READ_PHONE_STATE) }
+    val overlayOk = remember(resumeTick, ver) { android.provider.Settings.canDrawOverlays(ctx) }
+    val quiet = remember(ver) { store.quietCount() }
+    fun openOverlaySettings() {
+        runCatching {
+            ctx.startActivity(
+                android.content.Intent(
+                    android.provider.Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    android.net.Uri.parse("package:" + ctx.packageName),
+                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
+    val phonePerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        if (ok && !android.provider.Settings.canDrawOverlays(ctx)) openOverlaySettings()
+    }
     val caseCount = remember(ver) { store.caseNos().size }
     val peopleCount = remember(ver) { store.registeredNumbers().size }
     val perms = remember(resumeTick) {
@@ -80,6 +100,56 @@ fun SettingsScreen(store: Store, data: PhoneData, resumeTick: Int) {
         ) {
             Text("설정", style = ts(30f, W8, tracking = -0.035f), color = c.ink)
         }
+
+        Group("통화 연동")
+        BCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
+            SettingRow(
+                icon = Ic.phone, fg = c.brand, bg = c.brandTint,
+                title = "통화 중 · 통화 후 도우미",
+                sub = "사건 번호와 통화하면 화면 위에 사건 정보, 끝나면 특이사항 남기기",
+                trailing = { Toggle(assistOn) },
+                onClick = {
+                    val on = !assistOn
+                    store.setCallAssist(on)
+                    if (on) {
+                        if (!Perms.granted(ctx, Manifest.permission.READ_PHONE_STATE)) phonePerm.launch(Manifest.permission.READ_PHONE_STATE)
+                        else if (!android.provider.Settings.canDrawOverlays(ctx)) openOverlaySettings()
+                    }
+                },
+            )
+            if (assistOn) {
+                Line()
+                SettingRow(
+                    icon = Ic.clock, fg = if (phoneOk) c.ok else c.warn, bg = if (phoneOk) c.okTint else c.warnTint,
+                    title = "전화 상태 읽기",
+                    trailing = { if (phoneOk) SmallTag("허용됨", c.ok, c.okTint, Ic.check) else SmallTag("허용 필요", c.warn, c.warnTint) },
+                    onClick = if (phoneOk) null else ({ phonePerm.launch(Manifest.permission.READ_PHONE_STATE) }),
+                )
+                Line()
+                SettingRow(
+                    icon = Ic.image, fg = if (overlayOk) c.ok else c.warn, bg = if (overlayOk) c.okTint else c.warnTint,
+                    title = "다른 앱 위에 표시",
+                    sub = if (overlayOk) null else "설정에서 보상검색기를 켜 주세요",
+                    trailing = { if (overlayOk) SmallTag("허용됨", c.ok, c.okTint, Ic.check) else SmallTag("허용 필요", c.warn, c.warnTint) },
+                    onClick = if (overlayOk) null else ({ openOverlaySettings() }),
+                )
+                if (quiet > 0) {
+                    Line()
+                    SettingRow(
+                        icon = Ic.x, fg = c.ink2, bg = c.chip,
+                        title = "다시 묻지 않는 번호 ${quiet}개",
+                        sub = "눌러서 모두 다시 묻기",
+                        onClick = { store.clearQuiet() },
+                    )
+                }
+            }
+        }
+        Text(
+            "녹음은 삼성 전화 앱이 그대로 해요. 이 앱은 통화 화면 위에 정보만 띄워요.",
+            style = ts(12f, W6),
+            color = c.ink3,
+            modifier = Modifier.padding(start = 22.dp, end = 22.dp, top = 8.dp),
+        )
 
         Group("통화녹음")
         BCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
@@ -250,9 +320,29 @@ private fun SettingRow(
             Text(value, style = ts(14f, W7, num = true), color = c.ink2)
         }
         trailing?.invoke()
-        if (onClick != null) {
+        if (onClick != null && trailing == null) {
             Spacer(Modifier.width(6.dp))
             Icon(Ic.chevron, null, tint = c.ink3, modifier = Modifier.size(15.dp))
         }
+    }
+}
+
+@Composable
+private fun Toggle(on: Boolean) {
+    val c = B.c
+    Box(
+        Modifier
+            .size(width = 46.dp, height = 28.dp)
+            .clip(androidx.compose.foundation.shape.CircleShape)
+            .background(if (on) c.brand else c.chip2)
+            .padding(3.dp),
+        contentAlignment = if (on) Alignment.CenterEnd else Alignment.CenterStart,
+    ) {
+        Box(
+            Modifier
+                .size(22.dp)
+                .clip(androidx.compose.foundation.shape.CircleShape)
+                .background(Color.White),
+        )
     }
 }

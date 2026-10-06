@@ -63,6 +63,20 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.material3.CircularProgressIndicator
 import com.bosang.search.data.TimelineItem
+import com.bosang.search.data.IssueSource
+import com.bosang.search.data.CasePhoto
+import com.bosang.search.data.Photos
+import com.bosang.search.data.recordKey
+import com.bosang.search.data.toSource
+import android.Manifest
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
 
 @Composable
 fun CaseScreen(
@@ -74,8 +88,13 @@ fun CaseScreen(
     onBack: () -> Unit,
     onOpenPerson: (String) -> Unit,
     onAddPeople: () -> Unit,
+    onIssue: (issueId: String?, source: IssueSource?) -> Unit,
+    onAlbum: () -> Unit,
+    onPhoto: (ref: String, photoId: String?) -> Unit,
 ) {
     val c = B.c
+    val ctx = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     StatusBarIcons(lightContent = true)
     val ver = store.version.intValue
     val links = remember(ver, caseNo) { store.linksForCase(caseNo) }
@@ -105,7 +124,32 @@ fun CaseScreen(
         recs = withContext(Dispatchers.Default) { Records.recs(numbers, index) }
     }
 
-    var kind by remember { mutableStateOf(Kind.SMS) }
+    val issues = remember(ver, caseNo) { store.issuesForCase(caseNo) }
+    val photos = remember(ver, caseNo) { store.photosForCase(caseNo) }
+    val issuesByRecord = remember(issues) { issues.filter { it.source != null }.groupBy { it.source!!.recordKey } }
+    val nameOf: (String) -> String = { store.displayName(it) }
+    // 문자로 받은 사진은 자동으로 사건 사진에 보관
+    LaunchedEffect(sms) {
+        sms?.let { list -> Photos.syncMms(ctx, store, list.map { it.sms }, caseNo) }
+    }
+    var photoAdd by remember { mutableStateOf(false) }
+    var recordMenu by remember { mutableStateOf<TimelineItem?>(null) }
+    var pendingCam by rememberSaveable { mutableStateOf<String?>(null) }
+    val camLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
+        val ref = pendingCam
+        pendingCam = null
+        if (ok && ref != null && Photos.exists(ctx, ref)) {
+            val now = System.currentTimeMillis()
+            store.addPhotos(listOf(CasePhoto(Photos.newId(), caseNo, ref, "camera", null, now, now)))
+            Toast.makeText(ctx, "사건에 넣었어요", Toast.LENGTH_SHORT).show()
+        } else {
+            Photos.deleteFile(ctx, ref)
+        }
+    }
+    val imagePerm = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE
+    val albumPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { onAlbum() }
+
+    var kind by rememberSaveable { mutableStateOf(Kind.SMS) }
     var who by remember { mutableStateOf<String?>(null) }
     var options by remember { mutableStateOf<CaseLink?>(null) }
     var editing by remember { mutableStateOf<CaseLink?>(null) }
@@ -120,11 +164,13 @@ fun CaseScreen(
         Kind.SMS -> sms?.forWho()
         Kind.REC -> recs?.forWho()
         Kind.CALL -> callItems?.forWho()
+        Kind.PHOTO -> null
     }
     val counts = mapOf(
         Kind.SMS to sms?.forWho()?.size,
         Kind.REC to recs?.forWho()?.size,
         Kind.CALL to callItems?.forWho()?.size,
+        Kind.PHOTO to photos.size,
     )
     val lastContact = listOfNotNull(
         sms?.firstOrNull()?.timeMillis,
@@ -146,6 +192,8 @@ fun CaseScreen(
                         HeroTopBar(
                             left = { GlassCircle(Ic.back, "뒤로", onClick = onBack) },
                             right = {
+                                GlassPill("사진+", Ic.image) { photoAdd = true }
+                                Spacer(Modifier.width(8.dp))
                                 Box {
                                     GlassCircle(Ic.more, "더보기") { moreMenu = true }
                                     DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
@@ -284,6 +332,13 @@ fun CaseScreen(
             )
         }
 
+        issuesSection(
+            issues = issues,
+            nameOf = nameOf,
+            onOpen = { onIssue(it.id, null) },
+            onAdd = { onIssue(null, null) },
+        )
+
         item(key = "tl-head") {
             KindTabs(
                 selected = kind,
@@ -292,16 +347,89 @@ fun CaseScreen(
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 14.dp),
             )
         }
-        timeline(
-            items = shown,
-            player = player,
-            emptyText = when {
-                who != null -> "이 사람과의 ${kind.label} 기록이 없어요. 위에서 [전체]를 눌러 보세요."
-                kind == Kind.REC -> "이 번호들의 통화녹음을 폰에서 찾지 못했어요."
-                else -> "이 번호들과의 ${kind.label} 기록이 없어요."
+        if (kind == Kind.PHOTO) {
+            photoSection(photos, nameOf) { onPhoto(Photos.shown(it), it.id) }
+        } else {
+            timeline(
+                items = shown,
+                player = player,
+                emptyText = when {
+                    who != null -> "이 사람과의 ${kind.label} 기록이 없어요. 위에서 [전체]를 눌러 보세요."
+                    kind == Kind.REC -> "이 번호들의 통화녹음을 폰에서 찾지 못했어요."
+                    else -> "이 번호들과의 ${kind.label} 기록이 없어요."
+                },
+                who = label,
+                loadingText = if (kind == Kind.REC) "통화녹음을 찾는 중 (파일이 많으면 조금 걸려요)" else "불러오는 중",
+                actions = TimelineActions(
+                    onMore = { recordMenu = it },
+                    attached = { issuesByRecord[it.recordKey()].orEmpty() },
+                    nameOf = nameOf,
+                    onIssue = { onIssue(it.id, null) },
+                    onImage = { onPhoto(it.toString(), null) },
+                ),
+            )
+        }
+    }
+
+    if (photoAdd) {
+        PhotoAddDialog(
+            caseNo = caseNo,
+            onCamera = {
+                photoAdd = false
+                val (ref, uri) = Photos.newCameraTarget(ctx)
+                pendingCam = ref
+                runCatching { camLauncher.launch(uri) }.onFailure {
+                    pendingCam = null
+                    Toast.makeText(ctx, "카메라를 열 수 없어요", Toast.LENGTH_SHORT).show()
+                }
             },
-            who = label,
-            loadingText = if (kind == Kind.REC) "통화녹음을 찾는 중 (파일이 많으면 조금 걸려요)" else "불러오는 중",
+            onAlbum = {
+                photoAdd = false
+                if (Perms.granted(ctx, imagePerm)) onAlbum() else albumPerm.launch(imagePerm)
+            },
+            onDismiss = { photoAdd = false },
+        )
+    }
+
+    recordMenu?.let { item ->
+        val who = store.displayName(item.number)
+        val title = when (item) {
+            is TimelineItem.Rec -> "$who · 통화 녹음"
+            is TimelineItem.Sms -> "$who · " + if (item.sms.incoming) "받은 문자" else "보낸 문자"
+            is TimelineItem.Call -> "$who · 통화"
+        }
+        val sub = Fmt.dayLabel(item.timeMillis).substringBefore(" ·") + " " + Fmt.time(item.timeMillis) + when (item) {
+            is TimelineItem.Rec -> item.rec.file.durationMs.takeIf { it > 0 }?.let { " · " + Fmt.durationKo(it) } ?: ""
+            is TimelineItem.Call -> item.call.durationSec.takeIf { it > 0 }?.let { " · " + Fmt.durationKo(it * 1000) } ?: ""
+            else -> ""
+        }
+        val info = "$caseNo · $title · $sub" + if (item is TimelineItem.Rec) " · " + item.rec.file.displayName else ""
+        OptionsDialog(
+            title = title,
+            subtitle = sub,
+            onDismiss = { recordMenu = null },
+            items = buildList {
+                add(Option("특이사항 남기기", Ic.pen) {
+                    recordMenu = null
+                    onIssue(null, item.toSource())
+                })
+                when (item) {
+                    is TimelineItem.Rec -> add(Option("공유", Ic.share) {
+                        recordMenu = null
+                        Photos.share(ctx, item.rec.file.uri, item.rec.file.displayName, "audio/*")
+                    })
+                    is TimelineItem.Sms -> add(Option("공유", Ic.share) {
+                        recordMenu = null
+                        Photos.shareText(ctx, item.sms.body)
+                    })
+                    else -> {}
+                }
+                add(Option(if (item is TimelineItem.Sms) "내용 복사" else "정보 복사", Ic.copy) {
+                    recordMenu = null
+                    clipboard.setText(AnnotatedString(if (item is TimelineItem.Sms) item.sms.body else info))
+                    Toast.makeText(ctx, "복사했어요", Toast.LENGTH_SHORT).show()
+                })
+            },
         )
     }
 
@@ -517,5 +645,25 @@ fun RoleDialog(title: String, caseNo: String, initial: String, onDismiss: () -> 
                 }
             }
         }
+    }
+}
+
+/** 어두운 머리 위의 반투명 글자 버튼 */
+@Composable
+fun GlassPill(text: String, icon: ImageVector, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(19.dp)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier
+            .press(scale = 0.94f, onClick = onClick)
+            .height(38.dp)
+            .clip(shape)
+            .background(Color.White.copy(alpha = 0.14f))
+            .border(1.dp, Color.White.copy(alpha = 0.2f), shape)
+            .padding(start = 11.dp, end = 13.dp),
+    ) {
+        Icon(icon, null, tint = Color.White, modifier = Modifier.size(17.dp))
+        Spacer(Modifier.width(5.dp))
+        Text(text, style = ts(13.5f, W8), color = Color.White)
     }
 }

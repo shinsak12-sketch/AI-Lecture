@@ -1084,7 +1084,7 @@ private fun TabItem(label: String, icon: ImageVector, on: Boolean, modifier: Mod
 
 /** 재생 중인 녹음: 화면 아래 떠 있는 작은 재생기 */
 @Composable
-fun MiniPlayer(player: Player, modifier: Modifier = Modifier) {
+fun MiniPlayer(player: Player, modifier: Modifier = Modifier, onMark: (() -> Unit)? = null) {
     val c = B.c
     if (player.currentKey == null) return
     val shape = RoundedCornerShape(24.dp)
@@ -1118,6 +1118,10 @@ fun MiniPlayer(player: Player, modifier: Modifier = Modifier) {
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+            }
+            if (onMark != null) {
+                Spacer(Modifier.width(8.dp))
+                GradientButton("이 지점에", icon = Ic.pen, height = 36.dp, radius = 12.dp, onClick = onMark)
             }
             Spacer(Modifier.width(8.dp))
             CloseCircle { player.release() }

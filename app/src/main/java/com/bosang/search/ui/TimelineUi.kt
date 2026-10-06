@@ -1,6 +1,11 @@
 package com.bosang.search.ui
 
+import android.net.Uri
 import android.provider.CallLog
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.Box
+import com.bosang.search.data.Issue
 import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -40,7 +45,7 @@ import com.bosang.search.data.Player
 import com.bosang.search.data.TimelineItem
 
 /** 문자 · 통화녹음 · 통화를 나눠서 본다. 문자가 기본 (가장 빨리 뜸) */
-enum class Kind(val label: String) { SMS("문자"), REC("통화녹음"), CALL("통화") }
+enum class Kind(val label: String) { SMS("문자"), REC("녹음"), CALL("통화"), PHOTO("사진") }
 
 /** 종류 탭: 개수, 찾는 중이면 작은 원 */
 @Composable
@@ -49,6 +54,7 @@ fun KindTabs(
     counts: Map<Kind, Int?>,
     onSelect: (Kind) -> Unit,
     modifier: Modifier = Modifier,
+    kinds: List<Kind> = Kind.entries,
 ) {
     val c = B.c
     Row(
@@ -58,13 +64,14 @@ fun KindTabs(
             .background(c.chip2)
             .padding(4.dp),
     ) {
-        Kind.entries.forEach { k ->
+        kinds.forEach { k ->
             val on = k == selected
             val shape = RoundedCornerShape(12.dp)
             val (icon, tint) = when (k) {
                 Kind.SMS -> Ic.msg to c.brand
                 Kind.REC -> Ic.wave to c.rec
                 Kind.CALL -> Ic.phone to c.ink2
+                Kind.PHOTO -> Ic.image to c.ok
             }
             Row(
                 horizontalArrangement = Arrangement.Center,
@@ -92,6 +99,15 @@ fun KindTabs(
     }
 }
 
+/** 타임라인 카드의 ⋮ · 붙은 특이사항 · 문자 사진 누르기 */
+class TimelineActions(
+    val onMore: ((TimelineItem) -> Unit)? = null,
+    val attached: (TimelineItem) -> List<Issue> = { emptyList() },
+    val nameOf: (String) -> String = { it },
+    val onIssue: (Issue) -> Unit = {},
+    val onImage: (Uri) -> Unit = {},
+)
+
 /** 타임라인 카드에 붙는 사람 정보 */
 data class WhoInfo(val name: String, val role: String?)
 
@@ -106,6 +122,7 @@ fun LazyListScope.timeline(
     emptyText: String,
     who: ((String) -> WhoInfo?)? = null,
     loadingText: String = "폰에서 찾는 중",
+    actions: TimelineActions = TimelineActions(),
 ) {
     if (items == null) {
         item(key = "tl-loading") { Loading(loadingText) }
@@ -130,11 +147,34 @@ fun LazyListScope.timeline(
         dayItems.forEachIndexed { i, ti ->
             val isLast = gi == groups.lastIndex && i == dayItems.lastIndex
             item(key = ti.key()) {
+                val w = who?.invoke(ti.number)
+                val more = actions.onMore?.let { f -> { f(ti) } }
                 ItemRow(ti, last = isLast) {
                     when (ti) {
-                        is TimelineItem.Rec -> RecCard(ti, who?.invoke(ti.number), player, showWho = who != null)
-                        is TimelineItem.Sms -> SmsCard(ti, who?.invoke(ti.number), showWho = who != null)
-                        is TimelineItem.Call -> CallCard(ti, who?.invoke(ti.number), player, showWho = who != null)
+                        is TimelineItem.Rec -> RecCard(ti, w, player, showWho = who != null, onMore = more)
+                        is TimelineItem.Sms -> SmsCard(ti, w, showWho = who != null, onMore = more, onImage = actions.onImage)
+                        is TimelineItem.Call -> CallCard(ti, w, player, showWho = who != null, onMore = more)
+                    }
+                    val rec = when (ti) {
+                        is TimelineItem.Rec -> ti.rec
+                        is TimelineItem.Call -> ti.rec
+                        else -> null
+                    }
+                    actions.attached(ti).forEach { iss ->
+                        AttachedIssue(
+                            iss,
+                            actions.nameOf,
+                            onOpen = { actions.onIssue(iss) },
+                            onPlayAt = rec?.let { r ->
+                                { at: Long ->
+                                    player.toggle(
+                                        r.file.cacheKey, r.file.uri,
+                                        listOfNotNull(w?.name ?: "통화 녹음", w?.role).joinToString(" · "),
+                                        Fmt.time(r.file.timeMillis), ti.number, r.file.timeMillis, at,
+                                    )
+                                }
+                            },
+                        )
                     }
                 }
             }
@@ -205,7 +245,7 @@ private fun ItemRow(item: TimelineItem, last: Boolean, content: @Composable () -
 }
 
 @Composable
-private fun RecCard(item: TimelineItem.Rec, who: WhoInfo?, player: Player, showWho: Boolean) {
+private fun RecCard(item: TimelineItem.Rec, who: WhoInfo?, player: Player, showWho: Boolean, onMore: (() -> Unit)?) {
     val c = B.c
     val f = item.rec.file
     val match = item.rec.match
@@ -224,7 +264,11 @@ private fun RecCard(item: TimelineItem.Rec, who: WhoInfo?, player: Player, showW
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 13.dp),
         ) {
             PlayButton(playing, 42.dp, soft = !isCurrent && match.method == MatchMethod.AMBIGUOUS) {
-                player.toggle(key, f.uri, playerTitle, Fmt.dayLabel(item.timeMillis).substringBefore(" ·") + " " + Fmt.time(item.timeMillis))
+                player.toggle(
+                    key, f.uri, playerTitle,
+                    Fmt.dayLabel(item.timeMillis).substringBefore(" ·") + " " + Fmt.time(item.timeMillis),
+                    item.number, f.timeMillis,
+                )
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -252,6 +296,7 @@ private fun RecCard(item: TimelineItem.Rec, who: WhoInfo?, player: Player, showW
                             color = if (isCurrent) c.brand else c.ink2,
                         )
                     }
+                    if (onMore != null) MoreBtn(onMore = onMore)
                 }
                 Waveform(
                     seed = (f.id % 1000).toInt(),
@@ -290,7 +335,7 @@ private fun RecCard(item: TimelineItem.Rec, who: WhoInfo?, player: Player, showW
 }
 
 @Composable
-private fun SmsCard(item: TimelineItem.Sms, who: WhoInfo?, showWho: Boolean) {
+private fun SmsCard(item: TimelineItem.Sms, who: WhoInfo?, showWho: Boolean, onMore: (() -> Unit)?, onImage: (Uri) -> Unit) {
     val c = B.c
     val ctx = LocalContext.current
     val clipboard = LocalClipboardManager.current
@@ -336,22 +381,47 @@ private fun SmsCard(item: TimelineItem.Sms, who: WhoInfo?, showWho: Boolean) {
                     color = meta,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (onMore != null) MoreBtn(tint = meta, onMore = onMore)
+            }
+            if (item.sms.body.isNotBlank()) {
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    item.sms.body,
+                    style = ts(14.5f, W4, lineHeight = 1.5f),
+                    color = fg,
+                    maxLines = if (expanded) Int.MAX_VALUE else 7,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            Spacer(Modifier.height(6.dp))
-            Text(
-                item.sms.body,
-                style = ts(14.5f, W4, lineHeight = 1.5f),
-                color = fg,
-                maxLines = if (expanded) Int.MAX_VALUE else 7,
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (item.sms.images.isNotEmpty()) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(top = 9.dp).horizontalScroll(rememberScrollState()),
+                ) {
+                    item.sms.images.forEach { u ->
+                        Thumb(
+                            u.toString(),
+                            Modifier.size(width = 96.dp, height = 72.dp).clip(RoundedCornerShape(12.dp)).press(scale = 0.95f) { onImage(u) },
+                            px = 300,
+                        )
+                    }
+                }
+                if (incoming) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 7.dp)) {
+                        Icon(Ic.check, null, tint = c.ok, modifier = Modifier.size(11.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("사진 ${item.sms.images.size}장 사건에 자동 보관", style = ts(11.5f, W7), color = c.ok)
+                    }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun CallCard(item: TimelineItem.Call, who: WhoInfo?, player: Player, showWho: Boolean) {
+private fun CallCard(item: TimelineItem.Call, who: WhoInfo?, player: Player, showWho: Boolean, onMore: (() -> Unit)?) {
     val c = B.c
     val call = item.call
     val missed = call.type == CallLog.Calls.MISSED_TYPE || call.type == CallLog.Calls.REJECTED_TYPE
@@ -398,9 +468,25 @@ private fun CallCard(item: TimelineItem.Call, who: WhoInfo?, player: Player, sho
                 Spacer(Modifier.width(8.dp))
                 PlayButton(playing, 36.dp) {
                     val t = listOfNotNull(who?.name ?: "통화 녹음", who?.role).joinToString(" · ")
-                    player.toggle(key, rec.file.uri, t, Fmt.dayLabel(call.timeMillis).substringBefore(" ·") + " " + Fmt.time(call.timeMillis))
+                    player.toggle(key, rec.file.uri, t, Fmt.dayLabel(call.timeMillis).substringBefore(" ·") + " " + Fmt.time(call.timeMillis), call.number, rec.file.timeMillis)
                 }
+            }
+            if (onMore != null) {
+                Spacer(Modifier.width(4.dp))
+                MoreBtn(onMore = onMore)
             }
         }
     }
+}
+
+@Composable
+private fun MoreBtn(tint: Color = B.c.ink3, onMore: () -> Unit) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .padding(start = 4.dp)
+            .size(28.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .press(scale = 0.9f, onClick = onMore),
+    ) { Icon(Ic.moreV, "더보기", tint = tint, modifier = Modifier.size(17.dp)) }
 }

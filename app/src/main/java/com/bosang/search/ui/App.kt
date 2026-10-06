@@ -36,6 +36,8 @@ import com.bosang.search.data.PhoneData
 import com.bosang.search.data.Player
 import com.bosang.search.data.RecordingIndex
 import com.bosang.search.data.Store
+import com.bosang.search.data.IssueKind
+import com.bosang.search.data.IssueSource
 import kotlinx.coroutines.delay
 
 sealed interface Screen {
@@ -44,6 +46,19 @@ sealed interface Screen {
     data class Register(val caseNo: String? = null, val numbers: List<String> = emptyList()) : Screen
     data class Case(val caseNo: String) : Screen
     data class Person(val number: String) : Screen
+    data class IssueEdit(
+        val caseNo: String,
+        val issueId: String? = null,
+        val source: IssueSource? = null,
+        val kind: IssueKind? = null,
+    ) : Screen
+    data class Album(val caseNo: String) : Screen
+    data class Photo(val ref: String, val photoId: String?) : Screen
+}
+
+/** 앱 밖(통화 끝난 뒤 창)에서 열어 달라고 한 화면 */
+object ExternalNav {
+    val pending = mutableStateOf<Screen?>(null)
 }
 
 object Perms {
@@ -94,6 +109,7 @@ fun App(resumeTick: Int) {
     }
 
     var stack by remember { mutableStateOf(listOf<Screen>(Screen.Home)) }
+    var markPick by remember { mutableStateOf<IssueSource?>(null) }
     fun push(s: Screen) {
         if (s is Screen.Register) player.release()
         stack = stack + s
@@ -108,6 +124,11 @@ fun App(resumeTick: Int) {
         stack = listOf(if (t == Tab.CASES) Screen.Home else Screen.Settings)
     }
     BackHandler(enabled = stack.size > 1) { pop() }
+    LaunchedEffect(ExternalNav.pending.value) {
+        val next = ExternalNav.pending.value ?: return@LaunchedEffect
+        ExternalNav.pending.value = null
+        push(next)
+    }
     BackHandler(enabled = stack.size == 1 && stack.first() == Screen.Settings) { tab(Tab.CASES) }
 
     val top = stack.last()
@@ -164,6 +185,9 @@ fun App(resumeTick: Int) {
                     onBack = { pop() },
                     onOpenPerson = { push(Screen.Person(it)) },
                     onAddPeople = { push(Screen.Register(caseNo = s.caseNo)) },
+                    onIssue = { id, src -> push(Screen.IssueEdit(s.caseNo, issueId = id, source = src)) },
+                    onAlbum = { push(Screen.Album(s.caseNo)) },
+                    onPhoto = { ref, id -> push(Screen.Photo(ref, id)) },
                 )
                 is Screen.Person -> PersonScreen(
                     store = store,
@@ -174,13 +198,46 @@ fun App(resumeTick: Int) {
                     onBack = { pop() },
                     onOpenCase = { push(Screen.Case(it)) },
                     onRegister = { push(Screen.Register(numbers = listOf(s.number))) },
+                    onIssue = { caseNo, src -> push(Screen.IssueEdit(caseNo, source = src)) },
                 )
+                is Screen.IssueEdit -> IssueEditorScreen(
+                    store = store,
+                    data = data,
+                    player = player,
+                    caseNo = s.caseNo,
+                    issueId = s.issueId,
+                    initialKind = s.kind,
+                    source = s.source,
+                    onBack = { pop() },
+                )
+                is Screen.Album -> AlbumClassifyScreen(store = store, data = data, caseNo = s.caseNo, onBack = { pop() })
+                is Screen.Photo -> PhotoViewScreen(store = store, ref = s.ref, photoId = s.photoId, onBack = { pop() })
             }
         }
 
-        if (top !is Screen.Register) {
+        val showPlayer = top == Screen.Home || top == Screen.Settings || top is Screen.Case || top is Screen.Person
+        // 녹음을 듣다가 "이 지점에" 특이사항
+        store.version.intValue
+        val markCases = player.number?.let { store.linksForNumber(it) }.orEmpty()
+        val onMark: (() -> Unit)? = if (markCases.isEmpty() || player.currentKey == null) null else {
+            {
+                val src = IssueSource(
+                    "rec", player.number.orEmpty(), player.recTime, player.currentKey.orEmpty(),
+                    player.positionMs, player.durationMs,
+                )
+                if (player.isPlaying) player.playPause()
+                val here = (top as? Screen.Case)?.caseNo?.takeIf { cn -> markCases.any { it.caseNo == cn } }
+                when {
+                    here != null -> push(Screen.IssueEdit(here, source = src))
+                    markCases.size == 1 -> push(Screen.IssueEdit(markCases.first().caseNo, source = src))
+                    else -> markPick = src
+                }
+            }
+        }
+        if (showPlayer) {
             MiniPlayer(
                 player = player,
+                onMark = onMark,
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = if (tabs) 92.dp else 0.dp),
@@ -194,5 +251,18 @@ fun App(resumeTick: Int) {
                 modifier = Modifier.align(Alignment.BottomCenter),
             )
         }
+    }
+    markPick?.let { src ->
+        OptionsDialog(
+            title = "어느 사건의 특이사항인가요?",
+            subtitle = Fmt.duration(src.offsetMs ?: 0) + " 지점",
+            onDismiss = { markPick = null },
+            items = store.linksForNumber(src.number).map { l ->
+                Option("${l.caseNo} · ${l.role}", Ic.folder) {
+                    markPick = null
+                    stack = stack + Screen.IssueEdit(l.caseNo, source = src)
+                }
+            },
+        )
     }
 }

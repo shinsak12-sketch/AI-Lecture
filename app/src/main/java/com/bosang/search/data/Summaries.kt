@@ -35,7 +35,7 @@ object Summaries {
             val smsCache = HashMap<String, List<SmsItem>>()
             caseNos.associateWith { caseNo ->
                 val numbers = store.linksForCase(caseNo).map { it.number }.toSet()
-                val sms = numbers.flatMap { n -> smsCache.getOrPut(n) { data.sms(n) } }
+                val sms = numbers.flatMap { n -> smsCache.getOrPut(n) { data.sms(n) + data.mms(n) } }
                 val caseCalls = numbers.flatMap { calls[it].orEmpty() }
                 CaseBase(
                     numbers = numbers,

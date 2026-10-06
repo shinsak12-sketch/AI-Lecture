@@ -32,6 +32,20 @@ sealed interface TimelineItem {
     }
 }
 
+/** 특이사항과 짝을 맞추는 기록 열쇠 */
+fun TimelineItem.recordKey(): String = when (this) {
+    is TimelineItem.Rec -> IssueSource.recordKey("rec", rec.file.cacheKey)
+    is TimelineItem.Sms -> IssueSource.recordKey("sms", sms.id.toString())
+    is TimelineItem.Call -> IssueSource.recordKey("call", call.timeMillis.toString())
+}
+
+/** 이 기록에 특이사항을 붙일 때의 출처 */
+fun TimelineItem.toSource(offsetMs: Long? = null): IssueSource = when (this) {
+    is TimelineItem.Rec -> IssueSource("rec", number, timeMillis, rec.file.cacheKey, offsetMs, rec.file.durationMs)
+    is TimelineItem.Sms -> IssueSource("sms", number, timeMillis, sms.id.toString())
+    is TimelineItem.Call -> IssueSource("call", number, timeMillis, call.timeMillis.toString(), null, call.durationSec * 1000)
+}
+
 /**
  * 폰 안 통화녹음 전체를 번호와 짝지어 둔 목록.
  * 한 번 짝지어진 녹음은 Store에 기억해서, 나중에 통화기록이 지워져도 유지된다.
@@ -98,7 +112,7 @@ object RecordingIndex {
 /** 문자 · 통화 · 녹음을 따로 불러온다 (문자와 통화는 빠르고, 녹음은 오래 걸릴 수 있음) */
 object Records {
     suspend fun sms(numbers: Set<String>, data: PhoneData): List<TimelineItem.Sms> = withContext(Dispatchers.IO) {
-        numbers.flatMap { data.sms(it) }.sortedByDescending { it.timeMillis }.map { TimelineItem.Sms(it) }
+        numbers.flatMap { data.sms(it) + data.mms(it) }.sortedByDescending { it.timeMillis }.map { TimelineItem.Sms(it) }
     }
 
     suspend fun calls(numbers: Set<String>, data: PhoneData): List<CallEntry> = withContext(Dispatchers.IO) {

@@ -20,6 +20,11 @@ class Player(context: Context) {
         private set
     var subtitle by mutableStateOf("")
         private set
+    /** 재생 중인 녹음의 상대 번호와 녹음 시각 (특이사항 "이 지점에"용) */
+    var number by mutableStateOf<String?>(null)
+        private set
+    var recTime by mutableLongStateOf(0L)
+        private set
     var isPlaying by mutableStateOf(false)
         private set
     var positionMs by mutableLongStateOf(0L)
@@ -30,9 +35,22 @@ class Player(context: Context) {
     var errorKey by mutableStateOf<String?>(null)
         private set
 
-    fun toggle(key: String, uri: Uri, title: String, subtitle: String = "") {
+    fun toggle(
+        key: String,
+        uri: Uri,
+        title: String,
+        subtitle: String = "",
+        number: String? = null,
+        recTime: Long = 0L,
+        startAt: Long = 0L,
+    ) {
         if (currentKey == key && mp != null) {
-            playPause()
+            if (startAt > 0) {
+                seekTo(startAt)
+                if (!isPlaying) playPause()
+            } else {
+                playPause()
+            }
             return
         }
         release()
@@ -44,13 +62,16 @@ class Player(context: Context) {
                 positionMs = durationMs
             }
             np.prepare()
+            if (startAt > 0) np.seekTo(startAt.toInt())
             np.start()
             mp = np
             currentKey = key
             this.title = title
             this.subtitle = subtitle
+            this.number = number
+            this.recTime = recTime
             durationMs = np.duration.toLong()
-            positionMs = 0L
+            positionMs = startAt
             isPlaying = true
             errorKey = null
         } catch (e: Exception) {
@@ -91,6 +112,7 @@ class Player(context: Context) {
         mp?.release()
         mp = null
         currentKey = null
+        number = null
         isPlaying = false
         positionMs = 0L
         durationMs = 0L

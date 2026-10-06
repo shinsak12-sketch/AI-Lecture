@@ -37,6 +37,10 @@ class Store private constructor(private val file: File) {
     private val names = mutableMapOf<String, String>()
     private val recCache = mutableMapOf<String, RecordingMatch>()
     private val recent = mutableListOf<String>()
+    private val issues = mutableListOf<Issue>()
+    private val photos = mutableListOf<CasePhoto>()
+    private var callAssistOn = false
+    private val quietNumbers = mutableSetOf<String>()
 
     // ---------- 조회 ----------
     @Synchronized fun caseNos(): List<String> = links.map { it.caseNo }.distinct().sortedDescending()
@@ -63,6 +67,78 @@ class Store private constructor(private val file: File) {
         return registeredNumbers().filter { n ->
             (digits.length >= 3 && n.contains(digits)) || (text.isNotEmpty() && nameOf(n)?.let { Hangul.matches(it, text) } == true)
         }
+    }
+
+    // ---------- 특이사항 ----------
+    /** 사건의 특이사항, 기록 시각(없으면 쓴 시각) 최신순 */
+    @Synchronized fun issuesForCase(caseNo: String): List<Issue> =
+        issues.filter { it.caseNo == caseNo }.sortedByDescending { it.source?.timeMillis ?: it.createdAt }
+
+    @Synchronized fun issue(id: String): Issue? = issues.firstOrNull { it.id == id }
+
+    fun saveIssue(issue: Issue) {
+        synchronized(this) {
+            val i = issues.indexOfFirst { it.id == issue.id }
+            if (i >= 0) issues[i] = issue else issues.add(issue)
+        }
+        changed()
+    }
+
+    fun deleteIssue(id: String) {
+        synchronized(this) { issues.removeAll { it.id == id } }
+        changed()
+    }
+
+    // ---------- 사진 ----------
+    @Synchronized fun photosForCase(caseNo: String): List<CasePhoto> =
+        photos.filter { it.caseNo == caseNo }.sortedByDescending { it.takenAt }
+
+    @Synchronized fun photo(id: String): CasePhoto? = photos.firstOrNull { it.id == id }
+
+    @Synchronized fun hasPhoto(id: String): Boolean = photos.any { it.id == id }
+
+    fun addPhotos(list: List<CasePhoto>) {
+        if (list.isEmpty()) return
+        synchronized(this) {
+            list.forEach { p -> if (photos.none { it.id == p.id }) photos.add(p) }
+        }
+        changed()
+    }
+
+    fun updatePhoto(p: CasePhoto) {
+        synchronized(this) {
+            val i = photos.indexOfFirst { it.id == p.id }
+            if (i >= 0) photos[i] = p
+        }
+        changed()
+    }
+
+    fun removePhoto(id: String) {
+        synchronized(this) { photos.removeAll { it.id == id } }
+        changed()
+    }
+
+    // ---------- 설정 ----------
+    @Synchronized fun callAssist(): Boolean = callAssistOn
+
+    fun setCallAssist(on: Boolean) {
+        synchronized(this) { callAssistOn = on }
+        changed()
+    }
+
+    /** 통화 끝나도 묻지 않을 번호 (가족 등) */
+    @Synchronized fun isQuiet(number: String): Boolean = number in quietNumbers
+
+    fun setQuiet(number: String, quiet: Boolean) {
+        synchronized(this) { if (quiet) quietNumbers.add(number) else quietNumbers.remove(number) }
+        changed()
+    }
+
+    @Synchronized fun quietCount(): Int = quietNumbers.size
+
+    fun clearQuiet() {
+        synchronized(this) { quietNumbers.clear() }
+        changed()
     }
 
     // ---------- 변경 (화면에서 호출) ----------
@@ -96,6 +172,8 @@ class Store private constructor(private val file: File) {
     fun deleteCase(caseNo: String) {
         synchronized(this) {
             links.removeAll { it.caseNo == caseNo }
+            issues.removeAll { it.caseNo == caseNo }
+            photos.removeAll { it.caseNo == caseNo }
             recent.remove("c:$caseNo")
         }
         changed()
@@ -104,7 +182,7 @@ class Store private constructor(private val file: File) {
     /** 앱이 저장한 것 전부 지우기 (폰의 문자·녹음 원본은 그대로) */
     fun clearAll() {
         synchronized(this) {
-            links.clear(); names.clear(); recCache.clear(); recent.clear()
+            links.clear(); names.clear(); recCache.clear(); recent.clear(); issues.clear(); photos.clear()
         }
         changed()
     }
@@ -147,6 +225,9 @@ class Store private constructor(private val file: File) {
             }
         })
         root.put("recent", JSONArray(recent))
+        root.put("issues", JSONArray().apply { issues.forEach { put(it.toJson()) } })
+        root.put("photos", JSONArray().apply { photos.forEach { put(it.toJson()) } })
+        root.put("prefs", JSONObject().put("callAssist", callAssistOn).put("quiet", JSONArray(quietNumbers.toList())))
         val tmp = File(file.parentFile, file.name + ".tmp")
         tmp.writeText(root.toString())
         if (!tmp.renameTo(file)) {
@@ -176,10 +257,18 @@ class Store private constructor(private val file: File) {
                 }
             }
             root.optJSONArray("recent")?.let { a -> for (i in 0 until a.length()) recent.add(a.getString(i)) }
+            root.optJSONArray("issues")?.let { a ->
+                for (i in 0 until a.length()) Issue.fromJson(a.getJSONObject(i))?.let { issues.add(it) }
+            }
+            root.optJSONArray("photos")?.let { a ->
+                for (i in 0 until a.length()) runCatching { CasePhoto.fromJson(a.getJSONObject(i)) }.getOrNull()?.let { photos.add(it) }
+            }
+            callAssistOn = root.optJSONObject("prefs")?.optBoolean("callAssist") ?: false
+            root.optJSONObject("prefs")?.optJSONArray("quiet")?.let { a -> for (i in 0 until a.length()) quietNumbers.add(a.getString(i)) }
         } catch (e: Exception) {
             // 파일이 깨졌으면 백업해 두고 빈 상태로 시작
             file.renameTo(File(file.parentFile, "store.broken.${System.currentTimeMillis()}.json"))
-            links.clear(); names.clear(); recCache.clear(); recent.clear()
+            links.clear(); names.clear(); recCache.clear(); recent.clear(); issues.clear(); photos.clear()
         }
     }
 

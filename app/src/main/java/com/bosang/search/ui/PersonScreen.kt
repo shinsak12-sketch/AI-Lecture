@@ -55,6 +55,9 @@ import com.bosang.search.data.Records
 import com.bosang.search.core.CallEntry
 import kotlinx.coroutines.launch
 import com.bosang.search.data.TimelineItem
+import com.bosang.search.data.IssueSource
+import com.bosang.search.data.Photos
+import com.bosang.search.data.toSource
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -68,6 +71,7 @@ fun PersonScreen(
     onBack: () -> Unit,
     onOpenCase: (String) -> Unit,
     onRegister: () -> Unit,
+    onIssue: (caseNo: String, source: IssueSource) -> Unit,
 ) {
     val c = B.c
     val ctx = LocalContext.current
@@ -108,7 +112,10 @@ fun PersonScreen(
         Kind.SMS -> sms
         Kind.REC -> recs
         Kind.CALL -> callItems
+        Kind.PHOTO -> null
     }
+    var recordMenu by remember { mutableStateOf<TimelineItem?>(null) }
+    var pickCaseFor by remember { mutableStateOf<TimelineItem?>(null) }
     var moreMenu by remember { mutableStateOf(false) }
 
     LazyColumn(
@@ -218,6 +225,7 @@ fun PersonScreen(
             KindTabs(
                 selected = kind,
                 counts = mapOf(Kind.SMS to sms?.size, Kind.REC to recs?.size, Kind.CALL to callItems?.size),
+                kinds = listOf(Kind.SMS, Kind.REC, Kind.CALL),
                 onSelect = { kind = it },
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
             )
@@ -227,7 +235,60 @@ fun PersonScreen(
             player = player,
             emptyText = if (kind == Kind.REC) "이 번호의 통화녹음을 폰에서 찾지 못했어요." else "이 번호와의 ${kind.label} 기록이 없어요.",
             who = null,
+            actions = TimelineActions(onMore = { recordMenu = it }),
             loadingText = if (kind == Kind.REC) "통화녹음을 찾는 중 (파일이 많으면 조금 걸려요)" else "불러오는 중",
+        )
+    }
+
+    recordMenu?.let { item ->
+        val title = (name ?: formatted) + " · " + when (item) {
+            is TimelineItem.Rec -> "통화 녹음"
+            is TimelineItem.Sms -> if (item.sms.incoming) "받은 문자" else "보낸 문자"
+            is TimelineItem.Call -> "통화"
+        }
+        val sub = Fmt.dayLabel(item.timeMillis).substringBefore(" ·") + " " + Fmt.time(item.timeMillis)
+        OptionsDialog(
+            title = title,
+            subtitle = sub,
+            onDismiss = { recordMenu = null },
+            items = buildList {
+                if (links.isNotEmpty()) {
+                    add(Option("특이사항 남기기", Ic.pen) {
+                        recordMenu = null
+                        if (links.size == 1) onIssue(links.first().caseNo, item.toSource()) else pickCaseFor = item
+                    })
+                }
+                when (item) {
+                    is TimelineItem.Rec -> add(Option("공유", Ic.share) {
+                        recordMenu = null
+                        Photos.share(ctx, item.rec.file.uri, item.rec.file.displayName, "audio/*")
+                    })
+                    is TimelineItem.Sms -> add(Option("공유", Ic.share) {
+                        recordMenu = null
+                        Photos.shareText(ctx, item.sms.body)
+                    })
+                    else -> {}
+                }
+                add(Option(if (item is TimelineItem.Sms) "내용 복사" else "정보 복사", Ic.copy) {
+                    recordMenu = null
+                    clipboard.setText(AnnotatedString(if (item is TimelineItem.Sms) item.sms.body else "$title · $sub"))
+                    Toast.makeText(ctx, "복사했어요", Toast.LENGTH_SHORT).show()
+                })
+            },
+        )
+    }
+
+    pickCaseFor?.let { item ->
+        OptionsDialog(
+            title = "어느 사건의 특이사항인가요?",
+            subtitle = null,
+            onDismiss = { pickCaseFor = null },
+            items = links.map { l ->
+                Option("${l.caseNo} · ${l.role}", Ic.folder) {
+                    pickCaseFor = null
+                    onIssue(l.caseNo, item.toSource())
+                }
+            },
         )
     }
 }
