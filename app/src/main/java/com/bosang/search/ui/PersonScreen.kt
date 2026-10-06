@@ -30,6 +30,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -56,6 +57,7 @@ import com.bosang.search.data.Records
 import com.bosang.search.core.CallEntry
 import kotlinx.coroutines.launch
 import com.bosang.search.data.TimelineItem
+import com.bosang.search.core.RecordQuery
 import com.bosang.search.data.IssueSource
 import com.bosang.search.data.Photos
 import com.bosang.search.data.toSource
@@ -110,14 +112,29 @@ fun PersonScreen(
     }
     var kind by remember { mutableStateOf(Kind.CALL) }
     val callItems = remember(calls, recs) { calls?.let { Records.callItems(it, recs) } }
-    val issues = remember(ver, number) { store.issuesForNumber(number) }
-    val issueIdx = remember(issues) { issueIndex(issues) }
+    val allIssues = remember(ver, number) { store.issuesForNumber(number) }
+    val issueIdx = remember(allIssues) { issueIndex(allIssues) }
     var onlyIssues by remember { mutableStateOf(false) }
     val nameOf: (String) -> String = { store.displayName(it) }
+    // 기록 안 검색 (내용 · 날짜 · 시각)
+    var search by rememberSaveable { mutableStateOf("") }
+    val rq = remember(search) { RecordQuery.parse(search) }
+    val me = WhoInfo(name ?: formatted, links.joinToString(" ") { it.role }.ifBlank { null })
+    fun <T : TimelineItem> List<T>.narrow(): List<T> =
+        if (rq.isEmpty) this else filter { rq.matches(it.timeMillis, recordSearchText(it, me, attachedIssues(it, issueIdx), nameOf)) }
+    val fCalls = remember(callItems, rq, issueIdx) { callItems?.narrow() }
+    val fSms = remember(sms, rq, issueIdx) { sms?.narrow() }
+    val fRecs = remember(recs, rq, issueIdx) { recs?.narrow() }
+    val issues = remember(allIssues, rq) {
+        if (rq.isEmpty) allIssues
+        else allIssues.filter { rq.matches(it.source?.timeMillis ?: it.createdAt, issueSearchText(it, nameOf)) }
+    }
+    val counts = mapOf(Kind.CALL to fCalls?.size, Kind.SMS to fSms?.size, Kind.REC to fRecs?.size)
+    val found = if (rq.isEmpty) null else listOfNotNull(fCalls?.size, fSms?.size, fRecs?.size).sum() + issues.size
     val shownAll: List<TimelineItem>? = when (kind) {
-        Kind.SMS -> sms
-        Kind.REC -> recs
-        Kind.CALL -> callItems
+        Kind.SMS -> fSms
+        Kind.REC -> fRecs
+        Kind.CALL -> fCalls
         Kind.PHOTO -> null
     }
     val withIssues = shownAll?.count { attachedIssues(it, issueIdx).isNotEmpty() } ?: 0
@@ -222,6 +239,16 @@ fun PersonScreen(
             )
         }
 
+        item(key = "search") {
+            RecordSearchBar(
+                value = search,
+                onValue = { search = it },
+                query = rq,
+                found = found,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = if (links.isEmpty()) 18.dp else 0.dp),
+            )
+        }
+
         issuesSection(
             issues = issues,
             nameOf = nameOf,
@@ -241,7 +268,7 @@ fun PersonScreen(
           Column {
             KindTabs(
                 selected = kind,
-                counts = mapOf(Kind.CALL to callItems?.size, Kind.SMS to sms?.size, Kind.REC to recs?.size),
+                counts = counts,
                 kinds = listOf(Kind.CALL, Kind.SMS, Kind.REC),
                 onSelect = { kind = it },
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp),
@@ -256,6 +283,7 @@ fun PersonScreen(
             items = shown,
             player = player,
             emptyText = when {
+                !rq.isEmpty -> "'${search.trim()}'에 맞는 ${kind.label} 기록이 없어요." + elsewhere(counts, kind)
                 onlyIssues -> "특이사항이 붙은 ${kind.label} 기록이 없어요."
                 kind == Kind.REC -> "이 번호의 통화녹음을 폰에서 찾지 못했어요."
                 else -> "이 번호와의 ${kind.label} 기록이 없어요."
@@ -267,6 +295,7 @@ fun PersonScreen(
                 nameOf = nameOf,
                 onIssue = { onIssue(it.id, null) },
                 onImage = { onPhoto(it.toString()) },
+                highlight = rq.terms,
             ),
             loadingText = if (kind == Kind.REC) "통화녹음을 찾는 중 (파일이 많으면 조금 걸려요)" else "불러오는 중",
         )

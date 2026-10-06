@@ -222,3 +222,64 @@ class SmsFilterTest {
     }
 }
 
+
+class RecordQueryTest {
+    private val zone = java.time.ZoneId.of("Asia/Seoul")
+    private val today = java.time.LocalDate.of(2026, 10, 6) // 화요일
+    private fun at(m: Int, d: Int, h: Int = 10, mi: Int = 0, y: Int = 2026) =
+        java.time.LocalDateTime.of(y, m, d, h, mi).atZone(zone).toInstant().toEpochMilli()
+    private fun q(s: String) = RecordQuery.parse(s, today)
+
+    @Test fun 날짜_여러_꼴() {
+        assertTrue(q("10/3").matches(at(10, 3), "", zone))
+        assertFalse(q("10/3").matches(at(10, 4), "", zone))
+        assertTrue(q("10.3").matches(at(10, 3), "", zone))
+        assertTrue(q("10월 3일").matches(at(10, 3), "", zone))
+        assertTrue(q("10월").matches(at(10, 28), "", zone))
+        assertFalse(q("10월").matches(at(9, 28), "", zone))
+        assertTrue(q("3일").matches(at(9, 3), "", zone))
+        assertTrue(q("2026.10.3").matches(at(10, 3), "", zone))
+        assertFalse(q("2025.10.3").matches(at(10, 3), "", zone))
+        assertTrue(q("10/1~10/5").matches(at(10, 4), "", zone))
+        assertFalse(q("10/1~10/5").matches(at(10, 6), "", zone))
+    }
+
+    @Test fun 오늘_어제_이번주() {
+        assertTrue(q("오늘").matches(at(10, 6), "", zone))
+        assertTrue(q("어제").matches(at(10, 5), "", zone))
+        assertFalse(q("어제").matches(at(10, 6), "", zone))
+        assertTrue(q("이번주").matches(at(10, 5), "", zone))
+        assertFalse(q("이번주").matches(at(10, 4), "", zone))
+        assertTrue(q("지난주").matches(at(10, 1), "", zone))
+        assertTrue(q("지난달").matches(at(9, 15), "", zone))
+    }
+
+    @Test fun 시각() {
+        assertTrue(q("3시").matches(at(10, 6, 15, 20), "", zone))
+        assertTrue(q("3시").matches(at(10, 6, 3, 20), "", zone))
+        assertFalse(q("오후 3시").matches(at(10, 6, 3, 20), "", zone))
+        assertTrue(q("14:30").matches(at(10, 6, 14, 30), "", zone))
+        assertFalse(q("14:30").matches(at(10, 6, 14, 31), "", zone))
+    }
+
+    @Test fun 글자와_날짜_함께() {
+        val text = "홍길동 피해자 01012345678 내일 정비소 견적서 보내드릴게요"
+        assertTrue(q("견적").matches(at(10, 3), text, zone))
+        assertTrue(q("10/3 견적").matches(at(10, 3), text, zone))
+        assertFalse(q("10/4 견적").matches(at(10, 3), text, zone))
+        assertFalse(q("견적 렌트").matches(at(10, 3), text, zone))
+        assertTrue(q("ㅎㄱㄷ").matches(at(10, 3), text, zone))
+        assertTrue(q("5678").matches(at(10, 3), text, zone))
+        assertTrue(q("정비 소").matches(at(10, 3), text, zone))
+        assertEquals(listOf("10월 3일"), q("10/3 견적").labels)
+        assertEquals(listOf("견적"), q("10/3 견적").terms)
+    }
+
+    @Test fun 번호는_날짜로_안_읽음() {
+        val p = q("010-1234-5678")
+        assertTrue(p.labels.isEmpty())
+        assertTrue(p.matches(at(10, 3), "01012345678 홍길동", zone))
+        assertTrue(q("01012345678").matches(at(10, 3), "010-1234-5678 홍길동", zone))
+        assertTrue(q("1234").labels.isEmpty())
+    }
+}

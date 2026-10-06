@@ -14,8 +14,8 @@ android {
         applicationId = "com.bosang.search"
         minSdk = 29
         targetSdk = 35
-        versionCode = 11
-        versionName = "0.4.4"
+        versionCode = 12
+        versionName = "0.4.5"
     }
 
     // 고정 서명 키: 새 버전을 받아도 지우지 않고 덮어 설치할 수 있게

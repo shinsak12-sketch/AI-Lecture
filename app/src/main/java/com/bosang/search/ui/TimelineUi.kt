@@ -106,7 +106,97 @@ class TimelineActions(
     val nameOf: (String) -> String = { it },
     val onIssue: (Issue) -> Unit = {},
     val onImage: (Uri) -> Unit = {},
+    /** 기록 검색 중이면 문자 안에서 칠할 낱말 */
+    val highlight: List<String> = emptyList(),
 )
+
+/** 찾는 낱말에 형광펜 */
+fun highlighted(text: String, terms: List<String>, color: Color): androidx.compose.ui.text.AnnotatedString =
+    androidx.compose.ui.text.buildAnnotatedString {
+        append(text)
+        terms.filter { it.isNotBlank() }.forEach { t ->
+            var i = text.indexOf(t, ignoreCase = true)
+            while (i >= 0) {
+                addStyle(androidx.compose.ui.text.SpanStyle(background = color), i, i + t.length)
+                i = text.indexOf(t, i + t.length, ignoreCase = true)
+            }
+        }
+    }
+
+/** 특이사항 하나의 검색용 글 */
+fun issueSearchText(i: Issue, nameOf: (String) -> String): String = listOfNotNull(
+    i.kind.label,
+    i.summary(nameOf),
+    i.text,
+    i.claimant?.let(nameOf),
+    i.accidentType,
+    i.amountKind,
+    i.claimNote,
+    i.parts.joinToString(" "),
+).joinToString(" ")
+
+/** 기록 하나의 검색용 글: 내용 · 이름 · 관계 · 번호 · 종류 · 붙은 특이사항 */
+fun recordSearchText(item: TimelineItem, who: WhoInfo?, issues: List<Issue>, nameOf: (String) -> String): String = buildString {
+    append(who?.name ?: nameOf(item.number)).append(' ')
+    who?.role?.let { append(it).append(' ') }
+    append(item.number).append(' ')
+    when (item) {
+        is TimelineItem.Sms -> {
+            append(if (item.sms.incoming) "받은 문자 " else "보낸 문자 ")
+            if (item.sms.images.isNotEmpty()) append("사진 ")
+            append(item.sms.body)
+        }
+        is TimelineItem.Rec -> append("녹음 녹취 통화녹음 ").append(item.rec.file.displayName)
+        is TimelineItem.Call -> {
+            append(
+                when (item.call.type) {
+                    CallLog.Calls.INCOMING_TYPE -> "받은 전화 "
+                    CallLog.Calls.MISSED_TYPE -> "부재중 "
+                    CallLog.Calls.REJECTED_TYPE -> "거절 부재중 "
+                    else -> "건 전화 "
+                },
+            )
+            append("통화 ")
+            item.rec?.let { append("녹음 녹취 ").append(it.file.displayName) }
+        }
+    }
+    issues.forEach { append(' ').append(issueSearchText(it, nameOf)) }
+}
+
+/** 기록 안 검색칸 + 알아들은 날짜 · 시각 표시 */
+@Composable
+fun RecordSearchBar(
+    value: String,
+    onValue: (String) -> Unit,
+    query: com.bosang.search.core.RecordQuery,
+    found: Int?,
+    modifier: Modifier = Modifier,
+) {
+    val c = B.c
+    Column(modifier) {
+        LightSearchField(value = value, onValue = onValue, placeholder = "기록 안에서 찾기 · 내용, 날짜, 이름")
+        if (value.isBlank()) {
+            Text(
+                "예: 견적 · 10/3 · 10월 · 어제 · 오후 3시 · 10/3 렌트",
+                style = ts(12f, W6),
+                color = c.ink3,
+                modifier = Modifier.padding(start = 6.dp, top = 7.dp),
+            )
+        } else {
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .padding(top = 8.dp)
+                    .horizontalScroll(rememberScrollState()),
+            ) {
+                query.labels.forEach { SmallTag(it, c.brand, c.brandTint, Ic.clock) }
+                query.terms.forEach { SmallTag(it, c.ink2, c.chip2, Ic.search) }
+                if (found != null) Text("${found}건", style = ts(12.5f, W8, num = true), color = c.ink2, modifier = Modifier.padding(start = 2.dp))
+            }
+        }
+    }
+}
 
 /** 타임라인 카드에 붙는 사람 정보 */
 data class WhoInfo(val name: String, val role: String?)
@@ -152,7 +242,7 @@ fun LazyListScope.timeline(
                 ItemRow(ti, last = isLast) {
                     when (ti) {
                         is TimelineItem.Rec -> RecCard(ti, w, player, showWho = who != null, onMore = more)
-                        is TimelineItem.Sms -> SmsCard(ti, w, showWho = who != null, onMore = more, onImage = actions.onImage)
+                        is TimelineItem.Sms -> SmsCard(ti, w, showWho = who != null, onMore = more, onImage = actions.onImage, highlight = actions.highlight)
                         is TimelineItem.Call -> CallCard(ti, w, player, showWho = who != null, onMore = more)
                     }
                     val rec = when (ti) {
@@ -335,12 +425,20 @@ private fun RecCard(item: TimelineItem.Rec, who: WhoInfo?, player: Player, showW
 }
 
 @Composable
-private fun SmsCard(item: TimelineItem.Sms, who: WhoInfo?, showWho: Boolean, onMore: (() -> Unit)?, onImage: (Uri) -> Unit) {
+private fun SmsCard(
+    item: TimelineItem.Sms,
+    who: WhoInfo?,
+    showWho: Boolean,
+    onMore: (() -> Unit)?,
+    onImage: (Uri) -> Unit,
+    highlight: List<String> = emptyList(),
+) {
     val c = B.c
     val ctx = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val incoming = item.sms.incoming
-    var expanded by remember { mutableStateOf(false) }
+    // 찾는 낱말이 있으면 펼쳐서 보여줌
+    var expanded by remember(highlight) { mutableStateOf(highlight.any { item.sms.body.contains(it, ignoreCase = true) }) }
     val fg = if (incoming) c.ink else Color.White
     val meta = if (incoming) c.ink2 else Color.White.copy(alpha = 0.6f)
     val dirColor = if (incoming) c.brand else Color.White.copy(alpha = 0.78f)
@@ -389,7 +487,7 @@ private fun SmsCard(item: TimelineItem.Sms, who: WhoInfo?, showWho: Boolean, onM
                 Spacer(Modifier.height(6.dp))
                 var overflow by remember { mutableStateOf(false) }
                 Text(
-                    item.sms.body,
+                    highlighted(item.sms.body, highlight, if (incoming) Color(0x66FFC83D) else Color(0x80FFB300)),
                     style = ts(14.5f, W4, lineHeight = 1.5f),
                     color = fg,
                     maxLines = if (expanded) Int.MAX_VALUE else 7,

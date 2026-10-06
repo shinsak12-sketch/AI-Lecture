@@ -64,6 +64,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.material3.CircularProgressIndicator
 import com.bosang.search.data.TimelineItem
+import com.bosang.search.core.RecordQuery
 import com.bosang.search.data.IssueSource
 import com.bosang.search.data.CasePhoto
 import com.bosang.search.data.Photos
@@ -125,9 +126,9 @@ fun CaseScreen(
         recs = withContext(Dispatchers.Default) { Records.recs(numbers, index) }
     }
 
-    val issues = remember(ver, caseNo) { store.issuesForCase(caseNo) }
-    val photos = remember(ver, caseNo) { store.photosForCase(caseNo) }
-    val issueIdx = remember(issues) { issueIndex(issues) }
+    val allIssues = remember(ver, caseNo) { store.issuesForCase(caseNo) }
+    val allPhotos = remember(ver, caseNo) { store.photosForCase(caseNo) }
+    val issueIdx = remember(allIssues) { issueIndex(allIssues) }
     var onlyIssues by rememberSaveable { mutableStateOf(false) }
     val nameOf: (String) -> String = { store.displayName(it) }
     // 문자로 받은 사진은 자동으로 사건 사진에 보관
@@ -160,22 +161,49 @@ fun CaseScreen(
 
     val roleOf = links.associate { it.number to it.role }
     val label: (String) -> WhoInfo? = { n -> WhoInfo(store.displayName(n), roleOf[n]) }
-    fun <T : TimelineItem> List<T>.forWho() = if (who == null) this else filter { it.number == who }
+    // 기록 안 검색 (내용 · 날짜 · 시각 · 이름)
+    var search by rememberSaveable { mutableStateOf("") }
+    val rq = remember(search) { RecordQuery.parse(search) }
+    fun <T : TimelineItem> List<T>.narrow(): List<T> {
+        val byWho = if (who == null) this else filter { it.number == who }
+        if (rq.isEmpty) return byWho
+        return byWho.filter { rq.matches(it.timeMillis, recordSearchText(it, label(it.number), attachedIssues(it, issueIdx), nameOf)) }
+    }
     val callItems = remember(calls, recs) { calls?.let { Records.callItems(it, recs) } }
+    val fCalls = remember(callItems, who, rq, issueIdx) { callItems?.narrow() }
+    val fSms = remember(sms, who, rq, issueIdx) { sms?.narrow() }
+    val fRecs = remember(recs, who, rq, issueIdx) { recs?.narrow() }
+    val issues = remember(allIssues, rq) {
+        if (rq.isEmpty) allIssues
+        else allIssues.filter { rq.matches(it.source?.timeMillis ?: it.createdAt, issueSearchText(it, nameOf)) }
+    }
+    val photos = remember(allPhotos, rq) {
+        if (rq.isEmpty) allPhotos
+        else allPhotos.filter { p ->
+            val text = listOfNotNull(
+                "사진",
+                p.kind,
+                p.from?.let { nameOf(it) },
+                when (p.source) { "mms" -> "문자 사진"; "camera" -> "촬영"; else -> "앨범" },
+            ).joinToString(" ")
+            rq.matches(p.takenAt, text)
+        }
+    }
     val shownAll: List<TimelineItem>? = when (kind) {
-        Kind.SMS -> sms?.forWho()
-        Kind.REC -> recs?.forWho()
-        Kind.CALL -> callItems?.forWho()
+        Kind.SMS -> fSms
+        Kind.REC -> fRecs
+        Kind.CALL -> fCalls
         Kind.PHOTO -> null
     }
     val withIssues = shownAll?.count { attachedIssues(it, issueIdx).isNotEmpty() } ?: 0
     val shown = if (onlyIssues) shownAll?.filter { attachedIssues(it, issueIdx).isNotEmpty() } else shownAll
     val counts = mapOf(
-        Kind.CALL to callItems?.forWho()?.size,
-        Kind.SMS to sms?.forWho()?.size,
-        Kind.REC to recs?.forWho()?.size,
+        Kind.CALL to fCalls?.size,
+        Kind.SMS to fSms?.size,
+        Kind.REC to fRecs?.size,
         Kind.PHOTO to photos.size,
     )
+    val found = if (rq.isEmpty) null else listOfNotNull(fCalls?.size, fSms?.size, fRecs?.size).sum() + photos.size + issues.size
     val lastContact = listOfNotNull(
         sms?.firstOrNull()?.timeMillis,
         recs?.firstOrNull()?.timeMillis,
@@ -338,6 +366,16 @@ fun CaseScreen(
             )
         }
 
+        item(key = "search") {
+            RecordSearchBar(
+                value = search,
+                onValue = { search = it },
+                query = rq,
+                found = found,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp),
+            )
+        }
+
         issuesSection(
             issues = issues,
             nameOf = nameOf,
@@ -367,6 +405,7 @@ fun CaseScreen(
                 items = shown,
                 player = player,
                 emptyText = when {
+                    !rq.isEmpty -> "'${search.trim()}'에 맞는 ${kind.label} 기록이 없어요." + elsewhere(counts, kind)
                     onlyIssues -> "특이사항이 붙은 ${kind.label} 기록이 없어요."
                     who != null -> "이 사람과의 ${kind.label} 기록이 없어요. 위에서 [전체]를 눌러 보세요."
                     kind == Kind.REC -> "이 번호들의 통화녹음을 폰에서 찾지 못했어요."
@@ -379,6 +418,7 @@ fun CaseScreen(
                     attached = { attachedIssues(it, issueIdx) },
                     nameOf = nameOf,
                     onIssue = { onIssue(it.id, null) },
+                    highlight = rq.terms,
                     onImage = { u ->
                         val saved = store.photo("mms_${u.lastPathSegment}_$caseNo")
                         if (saved != null) onPhoto(Photos.shown(saved), saved.id) else onPhoto(u.toString(), null)
@@ -695,4 +735,10 @@ fun GlassPill(text: String, icon: ImageVector, onClick: () -> Unit) {
         Spacer(Modifier.width(5.dp))
         Text(text, style = ts(13.5f, W8), color = Color.White)
     }
+}
+
+/** 지금 분류엔 없지만 다른 분류에 있으면 알려줌 */
+internal fun elsewhere(counts: Map<Kind, Int?>, now: Kind): String {
+    val other = counts.filter { (k, n) -> k != now && (n ?: 0) > 0 }.map { (k, n) -> "${k.label} ${n}건" }
+    return if (other.isEmpty()) "" else "\n" + other.joinToString(" · ") + "에 있어요."
 }
