@@ -96,6 +96,27 @@ class PhoneData(context: Context) {
         return out.filter { it.isNotEmpty() }.distinct()
     }
 
+    /** 연락처 이름 → 번호들 (녹음 파일 이름으로 번호 찾을 때 한 번에 읽어 둠) */
+    fun contactNumbersByName(): Map<String, List<String>> {
+        val out = HashMap<String, MutableList<String>>()
+        runCatching {
+            resolver.query(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER),
+                null, null, null,
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    val name = c.getString(0) ?: continue
+                    val number = PhoneNumbers.normalize(c.getString(1))
+                    if (number.isEmpty()) continue
+                    val list = out.getOrPut(name) { ArrayList() }
+                    if (number !in list) list.add(number)
+                }
+            }
+        }
+        return out
+    }
+
     /** 번호가 있는 연락처 전부 (한 사람이 번호가 여러 개면 번호마다 한 줄), 이름순 */
     fun contacts(): List<ContactEntry> {
         val out = ArrayList<ContactEntry>()

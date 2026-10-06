@@ -70,7 +70,10 @@ fun HomeScreen(
     val cases = remember(ver) { store.caseNos() }
     var summaries by remember { mutableStateOf<Map<String, CaseSummary>?>(null) }
     LaunchedEffect(ver, resumeTick, refresh) {
-        summaries = Summaries.forCases(cases, data, store)
+        // 문자 · 통화로 먼저 보여주고, 통화녹음은 다 찾은 뒤에 채운다
+        val base = Summaries.base(cases, data, store)
+        summaries = Summaries.summarize(base, RecordingIndex.peek())
+        summaries = Summaries.summarize(base, RecordingIndex.get(data, store))
     }
     val sums = summaries
     val sorted = if (byRecent && sums != null) cases.sortedByDescending { sums[it]?.lastTime ?: 0L } else cases
@@ -93,7 +96,7 @@ fun HomeScreen(
                     onQuery = { query = it },
                     caseCount = cases.size,
                     todayCount = todayCount,
-                    tall = !searching,
+                    tall = !searching && featured != null,
                     onRescan = {
                         RecordingIndex.invalidate()
                         refresh++
@@ -101,13 +104,13 @@ fun HomeScreen(
                     onSettings = onSettings,
                 )
             }
-            if (searching || featured == null) {
-                hero()
-            } else {
-                Overlap(
-                    overlap = 56.dp,
-                    top = hero,
-                    bottom = {
+            // 검색칸이 다시 만들어지면 한글 조합이 끊기므로, 검색 중에도 같은 자리에 둔다
+            val deck = !searching && featured != null
+            Overlap(
+                overlap = if (deck) 56.dp else 0.dp,
+                top = hero,
+                bottom = {
+                    if (deck && featured != null) {
                         FeaturedDeck(
                             caseNo = featured,
                             store = store,
@@ -115,9 +118,11 @@ fun HomeScreen(
                             player = player,
                             onOpen = { onOpenCase(featured) },
                         )
-                    },
-                )
-            }
+                    } else {
+                        Spacer(Modifier.height(0.dp))
+                    }
+                },
+            )
         }
 
         if (searching) {
@@ -142,7 +147,7 @@ fun HomeScreen(
                     caseNo = caseNo,
                     store = store,
                     summary = sums?.get(caseNo),
-                    loading = sums == null,
+                    loading = sums?.get(caseNo)?.recCount == null,
                     onOpen = { onOpenCase(caseNo) },
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
                 )
@@ -321,11 +326,11 @@ private fun FeaturedDeck(
                                 )
                             }
                         }
-                        null -> {
+                        else -> {
                             IconTile(Ic.docSearch, c.ink3, c.chip, 40.dp)
                             Spacer(Modifier.width(12.dp))
                             Text(
-                                if (summary == null) "기록을 찾는 중" else "아직 찾은 문자·녹음이 없어요",
+                                if (summary?.recCount == null) "기록을 찾는 중" else "아직 찾은 문자·녹음이 없어요",
                                 style = ts(14f, W6),
                                 color = c.ink2,
                                 modifier = Modifier.weight(1f),
@@ -417,7 +422,7 @@ fun CaseCard(
                 val (icon, fg, bg) = when (last) {
                     is TimelineItem.Rec -> Triple(Ic.wave, c.rec, c.recTint)
                     is TimelineItem.Sms -> Triple(Ic.msg, c.brand, c.brandTint)
-                    null -> Triple(Ic.clock, c.ink3, c.chip2)
+                    else -> Triple(Ic.clock, c.ink3, c.chip2)
                 }
                 IconTile(icon, fg, bg, 24.dp, 8.dp)
                 Spacer(Modifier.width(8.dp))
@@ -425,12 +430,12 @@ fun CaseCard(
                     is TimelineItem.Rec -> withJosa(store.displayName(last.number), "과", "와") + " 통화 녹음" +
                         if (last.rec.file.durationMs > 0) " · " + Fmt.durationKo(last.rec.file.durationMs) else ""
                     is TimelineItem.Sms -> store.displayName(last.number) + " \"" + last.sms.body.replace('\n', ' ').trim() + "\""
-                    null -> if (loading) "기록을 찾는 중" else "아직 찾은 문자·녹음이 없어요"
+                    else -> if (loading) "기록을 찾는 중" else "아직 찾은 문자·녹음이 없어요"
                 }
                 Text(
                     text,
                     style = ts(13f, W6),
-                    color = if (last == null) c.ink3 else c.ink,
+                    color = if (last !is TimelineItem.Rec && last !is TimelineItem.Sms) c.ink3 else c.ink,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -465,7 +470,7 @@ private fun androidx.compose.foundation.lazy.LazyListScope.searchResults(
                 caseNo = caseNo,
                 store = store,
                 summary = sums?.get(caseNo),
-                loading = sums == null,
+                loading = sums?.get(caseNo)?.recCount == null,
                 onOpen = { onOpenCase(caseNo) },
                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
             )

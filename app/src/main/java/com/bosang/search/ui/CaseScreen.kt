@@ -56,7 +56,12 @@ import com.bosang.search.data.Player
 import com.bosang.search.data.RecordingIndex
 import com.bosang.search.data.Roles
 import com.bosang.search.data.Store
-import com.bosang.search.data.Summaries
+import com.bosang.search.data.Records
+import com.bosang.search.core.CallEntry
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import androidx.compose.material3.CircularProgressIndicator
 import com.bosang.search.data.TimelineItem
 
 @Composable
@@ -87,27 +92,45 @@ fun CaseScreen(
     }
 
     val numbers = links.map { it.number }.toSet()
-    var items by remember(caseNo) { mutableStateOf<List<TimelineItem>?>(null) }
-    var calls by remember(caseNo) { mutableStateOf<Pair<Int, Long?>?>(null) }
+    var sms by remember(caseNo) { mutableStateOf<List<TimelineItem.Sms>?>(null) }
+    var calls by remember(caseNo) { mutableStateOf<List<CallEntry>?>(null) }
+    var recs by remember(caseNo) { mutableStateOf<List<TimelineItem.Rec>?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
     LaunchedEffect(numbers, resumeTick, refresh) {
-        items = RecordingIndex.timeline(numbers, data, store)
-        calls = Summaries.calls(numbers, data)
+        // 문자 · 통화는 바로, 통화녹음은 뒤에서 (이전 결과가 있으면 먼저 보여줌)
+        launch { sms = Records.sms(numbers, data) }
+        launch { calls = Records.calls(numbers, data) }
+        RecordingIndex.peek()?.let { recs = Records.recs(numbers, it) }
+        val index = RecordingIndex.get(data, store)
+        recs = withContext(Dispatchers.Default) { Records.recs(numbers, index) }
     }
 
-    var kind by remember { mutableStateOf(KindFilter.ALL) }
+    var kind by remember { mutableStateOf(Kind.SMS) }
     var who by remember { mutableStateOf<String?>(null) }
     var options by remember { mutableStateOf<CaseLink?>(null) }
     var editing by remember { mutableStateOf<CaseLink?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
-    var kindMenu by remember { mutableStateOf(false) }
     var moreMenu by remember { mutableStateOf(false) }
 
     val roleOf = links.associate { it.number to it.role }
     val label: (String) -> WhoInfo? = { n -> WhoInfo(store.displayName(n), roleOf[n]) }
-    val shown = items?.filterKind(kind)?.filter { who == null || it.number == who }
-    val all = items.orEmpty()
-    val lastContact = listOfNotNull(all.firstOrNull()?.timeMillis, calls?.second).maxOrNull()
+    fun <T : TimelineItem> List<T>.forWho() = if (who == null) this else filter { it.number == who }
+    val callItems = remember(calls, recs) { calls?.let { Records.callItems(it, recs) } }
+    val shown: List<TimelineItem>? = when (kind) {
+        Kind.SMS -> sms?.forWho()
+        Kind.REC -> recs?.forWho()
+        Kind.CALL -> callItems?.forWho()
+    }
+    val counts = mapOf(
+        Kind.SMS to sms?.forWho()?.size,
+        Kind.REC to recs?.forWho()?.size,
+        Kind.CALL to callItems?.forWho()?.size,
+    )
+    val lastContact = listOfNotNull(
+        sms?.firstOrNull()?.timeMillis,
+        recs?.firstOrNull()?.timeMillis,
+        calls?.maxOfOrNull { it.timeMillis },
+    ).maxOrNull()
 
     LazyColumn(
         contentPadding = PaddingValues(bottom = 120.dp),
@@ -193,13 +216,11 @@ fun CaseScreen(
                             .fillMaxWidth(),
                     ) {
                         Row(Modifier.padding(vertical = 14.dp, horizontal = 6.dp)) {
-                            val recs = items?.count { it is TimelineItem.Rec }
-                            val sms = items?.count { it is TimelineItem.Sms }
-                            Stat(Ic.wave, c.rec, c.recTint, recs, "통화녹음", Modifier.weight(1f)) { kind = KindFilter.REC }
+                            Stat(Ic.msg, c.brand, c.brandTint, sms?.size, "문자", Modifier.weight(1f)) { kind = Kind.SMS }
                             StatDivider()
-                            Stat(Ic.msg, c.brand, c.brandTint, sms, "문자", Modifier.weight(1f)) { kind = KindFilter.SMS }
+                            Stat(Ic.wave, c.rec, c.recTint, recs?.size, "통화녹음", Modifier.weight(1f)) { kind = Kind.REC }
                             StatDivider()
-                            Stat(Ic.phone, c.ink2, c.chip, calls?.first, "통화", Modifier.weight(1f)) { kind = KindFilter.ALL }
+                            Stat(Ic.phone, c.ink2, c.chip, calls?.size, "통화", Modifier.weight(1f)) { kind = Kind.CALL }
                         }
                     }
                 },
@@ -264,33 +285,23 @@ fun CaseScreen(
         }
 
         item(key = "tl-head") {
-            SectionHeader("타임라인", items?.filterKind(kind)?.filter { who == null || it.number == who }?.size, modifier = Modifier.padding(top = 0.dp)) {
-                Box {
-                    HeaderAction(kind.label, trailing = Ic.down) { kindMenu = true }
-                    DropdownMenu(expanded = kindMenu, onDismissRequest = { kindMenu = false }) {
-                        KindFilter.entries.forEach { k ->
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        "${k.label} ${all.filterKind(k).filter { who == null || it.number == who }.size}",
-                                        style = ts(15f, if (k == kind) W8 else W6, num = true),
-                                    )
-                                },
-                                onClick = {
-                                    kind = k
-                                    kindMenu = false
-                                },
-                            )
-                        }
-                    }
-                }
-            }
+            KindTabs(
+                selected = kind,
+                counts = counts,
+                onSelect = { kind = it },
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 18.dp, bottom = 14.dp),
+            )
         }
         timeline(
             items = shown,
             player = player,
-            emptyText = if (who != null || kind != KindFilter.ALL) "조건에 맞는 기록이 없어요. 위에서 [전체]를 눌러 보세요." else "이 번호들과 주고받은 문자나 통화녹음을 폰에서 찾지 못했어요.",
+            emptyText = when {
+                who != null -> "이 사람과의 ${kind.label} 기록이 없어요. 위에서 [전체]를 눌러 보세요."
+                kind == Kind.REC -> "이 번호들의 통화녹음을 폰에서 찾지 못했어요."
+                else -> "이 번호들과의 ${kind.label} 기록이 없어요."
+            },
             who = label,
+            loadingText = if (kind == Kind.REC) "통화녹음을 찾는 중 (파일이 많으면 조금 걸려요)" else "불러오는 중",
         )
     }
 
@@ -365,7 +376,13 @@ private fun Stat(icon: ImageVector, fg: Color, bg: Color, value: Int?, label: St
     ) {
         IconTile(icon, fg, bg, 30.dp, 10.dp)
         Spacer(Modifier.height(6.dp))
-        Text(value?.toString() ?: "–", style = ts(21f, W8, tracking = -0.02f, num = true), color = c.ink)
+        if (value != null) {
+            Text(value.toString(), style = ts(21f, W8, tracking = -0.02f, num = true), color = c.ink)
+        } else {
+            Box(Modifier.height(28.dp), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = c.ink3, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+            }
+        }
         Text(label, style = ts(12f, W6), color = c.ink2)
     }
 }

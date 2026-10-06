@@ -1,6 +1,12 @@
 package com.bosang.search.ui
 
+import android.provider.CallLog
 import android.widget.Toast
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -33,12 +39,57 @@ import com.bosang.search.core.MatchMethod
 import com.bosang.search.data.Player
 import com.bosang.search.data.TimelineItem
 
-enum class KindFilter(val label: String) { ALL("전체"), REC("통화녹음"), SMS("문자") }
+/** 문자 · 통화녹음 · 통화를 나눠서 본다. 문자가 기본 (가장 빨리 뜸) */
+enum class Kind(val label: String) { SMS("문자"), REC("통화녹음"), CALL("통화") }
 
-fun List<TimelineItem>.filterKind(k: KindFilter): List<TimelineItem> = when (k) {
-    KindFilter.ALL -> this
-    KindFilter.REC -> filterIsInstance<TimelineItem.Rec>()
-    KindFilter.SMS -> filterIsInstance<TimelineItem.Sms>()
+/** 종류 탭: 개수, 찾는 중이면 작은 원 */
+@Composable
+fun KindTabs(
+    selected: Kind,
+    counts: Map<Kind, Int?>,
+    onSelect: (Kind) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val c = B.c
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(15.dp))
+            .background(c.chip2)
+            .padding(4.dp),
+    ) {
+        Kind.entries.forEach { k ->
+            val on = k == selected
+            val shape = RoundedCornerShape(12.dp)
+            val (icon, tint) = when (k) {
+                Kind.SMS -> Ic.msg to c.brand
+                Kind.REC -> Ic.wave to c.rec
+                Kind.CALL -> Ic.phone to c.ink2
+            }
+            Row(
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(40.dp)
+                    .then(if (on) Modifier.depth(shape) else Modifier)
+                    .clip(shape)
+                    .background(if (on) c.card else Color.Transparent)
+                    .press(scale = 0.97f) { onSelect(k) },
+            ) {
+                Icon(icon, null, tint = if (on) tint else c.ink3, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(5.dp))
+                Text(k.label, style = ts(14f, W7), color = if (on) c.ink else c.ink2, maxLines = 1)
+                Spacer(Modifier.width(5.dp))
+                val n = counts[k]
+                if (n == null) {
+                    CircularProgressIndicator(color = c.ink3, strokeWidth = 1.5.dp, modifier = Modifier.size(11.dp))
+                } else {
+                    Text("$n", style = ts(12.5f, W8, num = true), color = if (on) tint else c.ink3)
+                }
+            }
+        }
+    }
 }
 
 /** 타임라인 카드에 붙는 사람 정보 */
@@ -54,9 +105,10 @@ fun LazyListScope.timeline(
     player: Player,
     emptyText: String,
     who: ((String) -> WhoInfo?)? = null,
+    loadingText: String = "폰에서 찾는 중",
 ) {
     if (items == null) {
-        item(key = "tl-loading") { Loading("폰에서 문자·통화녹음을 찾는 중") }
+        item(key = "tl-loading") { Loading(loadingText) }
         return
     }
     if (items.isEmpty()) {
@@ -78,10 +130,11 @@ fun LazyListScope.timeline(
         dayItems.forEachIndexed { i, ti ->
             val isLast = gi == groups.lastIndex && i == dayItems.lastIndex
             item(key = ti.key()) {
-                ItemRow(isRec = ti is TimelineItem.Rec, last = isLast) {
+                ItemRow(ti, last = isLast) {
                     when (ti) {
                         is TimelineItem.Rec -> RecCard(ti, who?.invoke(ti.number), player, showWho = who != null)
                         is TimelineItem.Sms -> SmsCard(ti, who?.invoke(ti.number), showWho = who != null)
+                        is TimelineItem.Call -> CallCard(ti, who?.invoke(ti.number), player, showWho = who != null)
                     }
                 }
             }
@@ -92,6 +145,7 @@ fun LazyListScope.timeline(
 private fun TimelineItem.key(): String = when (this) {
     is TimelineItem.Sms -> "s-${sms.id}"
     is TimelineItem.Rec -> "r-${rec.file.id}-$number"
+    is TimelineItem.Call -> "k-${call.timeMillis}-$number"
 }
 
 @Composable
@@ -117,8 +171,13 @@ private fun DayRow(text: String, first: Boolean) {
 }
 
 @Composable
-private fun ItemRow(isRec: Boolean, last: Boolean, content: @Composable () -> Unit) {
+private fun ItemRow(item: TimelineItem, last: Boolean, content: @Composable () -> Unit) {
     val c = B.c
+    val (node, tint) = when (item) {
+        is TimelineItem.Rec -> c.rec to c.recTint
+        is TimelineItem.Sms -> c.brand to c.brandTint
+        is TimelineItem.Call -> if (item.rec != null) c.rec to c.recTint else c.ink3 to c.chip2
+    }
     Column(
         Modifier
             .fillMaxWidth()
@@ -137,8 +196,6 @@ private fun ItemRow(isRec: Boolean, last: Boolean, content: @Composable () -> Un
                     drawLine(c.chip2, Offset(x, 0f), Offset(x, size.height), strokeWidth = w)
                 }
                 val cy = 24.dp.toPx()
-                val node = if (isRec) c.rec else c.brand
-                val tint = if (isRec) c.recTint else c.brandTint
                 drawCircle(c.bg, 7.5.dp.toPx(), Offset(x, cy))
                 drawCircle(tint, 7.dp.toPx(), Offset(x, cy))
                 drawCircle(node, 4.dp.toPx(), Offset(x, cy))
@@ -289,6 +346,61 @@ private fun SmsCard(item: TimelineItem.Sms, who: WhoInfo?, showWho: Boolean) {
                 maxLines = if (expanded) Int.MAX_VALUE else 7,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+    }
+}
+
+@Composable
+private fun CallCard(item: TimelineItem.Call, who: WhoInfo?, player: Player, showWho: Boolean) {
+    val c = B.c
+    val call = item.call
+    val missed = call.type == CallLog.Calls.MISSED_TYPE || call.type == CallLog.Calls.REJECTED_TYPE
+    val incoming = call.type == CallLog.Calls.INCOMING_TYPE
+    val kind = when {
+        call.type == CallLog.Calls.REJECTED_TYPE -> "거절"
+        missed -> "부재중"
+        incoming -> "받은 전화"
+        else -> "건 전화"
+    }
+    val (fg, bg) = when {
+        missed -> c.rec to c.recTint
+        incoming -> c.brand to c.brandTint
+        else -> c.ok to c.okTint
+    }
+    BCard(Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+        ) {
+            IconTile(if (missed) Ic.missed else if (incoming) Ic.incoming else Ic.outgoing, fg, bg, 36.dp, 12.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                val title = if (showWho && who != null) listOfNotNull(who.name, who.role).joinToString(" · ") else kind
+                Text(title, style = ts(14.5f, W8), color = c.ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                val sub = buildList {
+                    if (showWho) add(kind)
+                    add(Fmt.time(call.timeMillis))
+                    if (!missed && call.durationSec > 0) add(Fmt.durationKo(call.durationSec * 1000))
+                }
+                Text(
+                    sub.joinToString(" · "),
+                    style = ts(12.5f, W6, num = true),
+                    color = if (missed && showWho) c.rec else c.ink2,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+            val rec = item.rec
+            if (rec != null) {
+                val key = rec.file.cacheKey
+                val playing = player.currentKey == key && player.isPlaying
+                Spacer(Modifier.width(8.dp))
+                SmallTag("녹취", c.rec, c.recTint)
+                Spacer(Modifier.width(8.dp))
+                PlayButton(playing, 36.dp) {
+                    val t = listOfNotNull(who?.name ?: "통화 녹음", who?.role).joinToString(" · ")
+                    player.toggle(key, rec.file.uri, t, Fmt.dayLabel(call.timeMillis).substringBefore(" ·") + " " + Fmt.time(call.timeMillis))
+                }
+            }
         }
     }
 }

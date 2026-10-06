@@ -613,7 +613,7 @@ fun AvatarStack(people: List<Who>, size: Dp, ring: Color = B.c.card, max: Int = 
 // ───────────────────────── 작은 부품 ─────────────────────────
 
 @Composable
-fun CountPill(icon: ImageVector, count: Int, fg: Color, bg: Color) {
+fun CountPill(icon: ImageVector, count: Int?, fg: Color, bg: Color) {
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier = Modifier
@@ -624,12 +624,16 @@ fun CountPill(icon: ImageVector, count: Int, fg: Color, bg: Color) {
     ) {
         Icon(icon, null, tint = fg, modifier = Modifier.size(13.dp))
         Spacer(Modifier.width(5.dp))
-        Text("$count", style = ts(12.5f, W8, num = true), color = fg)
+        if (count != null) {
+            Text("$count", style = ts(12.5f, W8, num = true), color = fg)
+        } else {
+            CircularProgressIndicator(color = fg, strokeWidth = 1.5.dp, modifier = Modifier.size(10.dp))
+        }
     }
 }
 
 @Composable
-fun RecPill(count: Int) = CountPill(Ic.wave, count, B.c.rec, B.c.recTint)
+fun RecPill(count: Int?) = CountPill(Ic.wave, count, B.c.rec, B.c.recTint)
 
 @Composable
 fun MsgPill(count: Int) = CountPill(Ic.msg, count, B.c.brand, B.c.brandTint)

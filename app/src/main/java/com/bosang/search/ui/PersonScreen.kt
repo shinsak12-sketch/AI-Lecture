@@ -51,6 +51,9 @@ import com.bosang.search.data.Player
 import com.bosang.search.data.RecordingIndex
 import com.bosang.search.data.Store
 import com.bosang.search.data.Summaries
+import com.bosang.search.data.Records
+import com.bosang.search.core.CallEntry
+import kotlinx.coroutines.launch
 import com.bosang.search.data.TimelineItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -80,17 +83,32 @@ fun PersonScreen(
     val name = store.nameOf(number) ?: contactName
     val formatted = PhoneNumbers.format(number)
 
-    var items by remember(number) { mutableStateOf<List<TimelineItem>?>(null) }
+    val numbers = remember(number) { setOf(number) }
+    var sms by remember(number) { mutableStateOf<List<TimelineItem.Sms>?>(null) }
+    var calls by remember(number) { mutableStateOf<List<CallEntry>?>(null) }
+    var recs by remember(number) { mutableStateOf<List<TimelineItem.Rec>?>(null) }
     var summaries by remember { mutableStateOf<Map<String, CaseSummary>?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
     LaunchedEffect(number, resumeTick, refresh) {
-        items = RecordingIndex.timeline(setOf(number), data, store)
+        // 문자 · 통화는 바로, 통화녹음은 뒤에서
+        launch { sms = Records.sms(numbers, data) }
+        launch { calls = Records.calls(numbers, data) }
+        RecordingIndex.peek()?.let { recs = Records.recs(numbers, it) }
+        val index = RecordingIndex.get(data, store)
+        recs = withContext(Dispatchers.Default) { Records.recs(numbers, index) }
     }
     LaunchedEffect(links, resumeTick, refresh) {
-        summaries = Summaries.forCases(links.map { it.caseNo }, data, store)
+        val base = Summaries.base(links.map { it.caseNo }, data, store)
+        summaries = Summaries.summarize(base, RecordingIndex.peek())
+        summaries = Summaries.summarize(base, RecordingIndex.get(data, store))
     }
-    var kind by remember { mutableStateOf(KindFilter.ALL) }
-    var kindMenu by remember { mutableStateOf(false) }
+    var kind by remember { mutableStateOf(Kind.SMS) }
+    val callItems = remember(calls, recs) { calls?.let { Records.callItems(it, recs) } }
+    val shown: List<TimelineItem>? = when (kind) {
+        Kind.SMS -> sms
+        Kind.REC -> recs
+        Kind.CALL -> callItems
+    }
     var moreMenu by remember { mutableStateOf(false) }
 
     LazyColumn(
@@ -191,35 +209,25 @@ fun PersonScreen(
         item(key = "tl-head") {
             SectionHeader(
                 "전체 기록",
-                items?.filterKind(kind)?.size,
                 modifier = Modifier.padding(top = if (links.isEmpty()) 8.dp else 0.dp),
             ) {
-                Box {
-                    HeaderAction(if (kind == KindFilter.ALL) "사건 구분 없이" else kind.label, trailing = Ic.down) { kindMenu = true }
-                    DropdownMenu(expanded = kindMenu, onDismissRequest = { kindMenu = false }) {
-                        KindFilter.entries.forEach { k ->
-                            androidx.compose.material3.DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        "${k.label} ${items.orEmpty().filterKind(k).size}",
-                                        style = ts(15f, if (k == kind) W8 else W6, num = true),
-                                    )
-                                },
-                                onClick = {
-                                    kind = k
-                                    kindMenu = false
-                                },
-                            )
-                        }
-                    }
-                }
+                Text("사건 구분 없이", style = ts(13.5f, W7), color = c.ink2)
             }
         }
+        item(key = "tl-tabs") {
+            KindTabs(
+                selected = kind,
+                counts = mapOf(Kind.SMS to sms?.size, Kind.REC to recs?.size, Kind.CALL to callItems?.size),
+                onSelect = { kind = it },
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp),
+            )
+        }
         timeline(
-            items = items?.filterKind(kind),
+            items = shown,
             player = player,
-            emptyText = "이 번호와 주고받은 문자나 통화녹음을 폰에서 찾지 못했어요.",
+            emptyText = if (kind == Kind.REC) "이 번호의 통화녹음을 폰에서 찾지 못했어요." else "이 번호와의 ${kind.label} 기록이 없어요.",
             who = null,
+            loadingText = if (kind == Kind.REC) "통화녹음을 찾는 중 (파일이 많으면 조금 걸려요)" else "불러오는 중",
         )
     }
 }
