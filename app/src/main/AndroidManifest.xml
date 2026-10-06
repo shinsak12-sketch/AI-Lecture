@@ -13,6 +13,12 @@
     <!-- 통화 연동: 통화 시작·끝을 알고, 통화 화면 위에 사건 정보를 띄움 -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 통화 도우미: 백그라운드에서 계속 켜 두기 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- 카메라 앱에 사진 찍기를 맡김 (카메라 권한은 필요 없음) -->
     <queries>
@@ -47,6 +53,43 @@
                 <action android:name="android.intent.action.PHONE_STATE" />
             </intent-filter>
         </receiver>
+
+        <service
+            android:name=".call.CallAssistService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="통화 중 사건 정보 표시와 통화 후 메모 안내" />
+        </service>
+
+        <receiver
+            android:name=".call.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- 위젯 검색칸: 홈 화면 위에 뜨는 작은 검색창 -->
+        <activity
+            android:name=".widget.QuickSearchActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:launchMode="singleTask"
+            android:taskAffinity=".quick"
+            android:theme="@style/Theme.BosangSearch.Popup"
+            android:windowSoftInputMode="adjustResize|stateVisible" />
+
+        <!-- 위젯 줄의 버튼(전화·문자·열기)을 받아 넘기기만 하는 빈 화면 -->
+        <activity
+            android:name=".widget.WidgetRouter"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:noHistory="true"
+            android:taskAffinity=".router"
+            android:theme="@android:style/Theme.NoDisplay" />
 
         <receiver
             android:name=".widget.SearchWidget"

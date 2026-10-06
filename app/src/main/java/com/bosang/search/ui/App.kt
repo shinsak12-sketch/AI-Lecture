@@ -130,7 +130,7 @@ fun App(resumeTick: Int) {
     LaunchedEffect(ExternalNav.pending.value) {
         val next = ExternalNav.pending.value ?: return@LaunchedEffect
         ExternalNav.pending.value = null
-        if (next == Screen.Home) stack = listOf(Screen.Home) else push(next)
+        if (next == Screen.Home || next == Screen.Settings) stack = listOf(next) else push(next)
     }
     BackHandler(enabled = stack.size == 1 && stack.first() == Screen.Settings) { tab(Tab.CASES) }
 

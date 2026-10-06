@@ -70,9 +70,21 @@ fun SettingsScreen(store: Store, data: PhoneData, resumeTick: Int) {
             )
         }
     }
-    val phonePerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
-        if (ok && !android.provider.Settings.canDrawOverlays(ctx)) openOverlaySettings()
+    val needPerms = buildList {
+        add(Manifest.permission.READ_PHONE_STATE)
+        if (android.os.Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+    }.toTypedArray()
+    val phonePerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { res ->
+        com.bosang.search.call.CallAssistService.sync(ctx)
+        if (res[Manifest.permission.READ_PHONE_STATE] == true && !android.provider.Settings.canDrawOverlays(ctx)) openOverlaySettings()
     }
+    val notifOk = remember(resumeTick, ver) {
+        android.os.Build.VERSION.SDK_INT < 33 || Perms.granted(ctx, Manifest.permission.POST_NOTIFICATIONS)
+    }
+    val batteryOk = remember(resumeTick, ver) {
+        ctx.getSystemService(android.os.PowerManager::class.java).isIgnoringBatteryOptimizations(ctx.packageName)
+    }
+    val serviceOn = remember(resumeTick, ver) { com.bosang.search.call.CallAssistService.running }
     val caseCount = remember(ver) { store.caseNos().size }
     val peopleCount = remember(ver) { store.registeredNumbers().size }
     val perms = remember(resumeTick) {
@@ -111,8 +123,9 @@ fun SettingsScreen(store: Store, data: PhoneData, resumeTick: Int) {
                 onClick = {
                     val on = !assistOn
                     store.setCallAssist(on)
+                    com.bosang.search.call.CallAssistService.sync(ctx)
                     if (on) {
-                        if (!Perms.granted(ctx, Manifest.permission.READ_PHONE_STATE)) phonePerm.launch(Manifest.permission.READ_PHONE_STATE)
+                        if (needPerms.any { !Perms.granted(ctx, it) }) phonePerm.launch(needPerms)
                         else if (!android.provider.Settings.canDrawOverlays(ctx)) openOverlaySettings()
                     }
                 },
@@ -123,7 +136,7 @@ fun SettingsScreen(store: Store, data: PhoneData, resumeTick: Int) {
                     icon = Ic.clock, fg = if (phoneOk) c.ok else c.warn, bg = if (phoneOk) c.okTint else c.warnTint,
                     title = "전화 상태 읽기",
                     trailing = { if (phoneOk) SmallTag("허용됨", c.ok, c.okTint, Ic.check) else SmallTag("허용 필요", c.warn, c.warnTint) },
-                    onClick = if (phoneOk) null else ({ phonePerm.launch(Manifest.permission.READ_PHONE_STATE) }),
+                    onClick = if (phoneOk) null else ({ phonePerm.launch(needPerms) }),
                 )
                 Line()
                 SettingRow(
@@ -132,6 +145,39 @@ fun SettingsScreen(store: Store, data: PhoneData, resumeTick: Int) {
                     sub = if (overlayOk) null else "설정에서 보상검색기를 켜 주세요",
                     trailing = { if (overlayOk) SmallTag("허용됨", c.ok, c.okTint, Ic.check) else SmallTag("허용 필요", c.warn, c.warnTint) },
                     onClick = if (overlayOk) null else ({ openOverlaySettings() }),
+                )
+                Line()
+                SettingRow(
+                    icon = Ic.info, fg = if (notifOk) c.ok else c.warn, bg = if (notifOk) c.okTint else c.warnTint,
+                    title = "알림 표시",
+                    sub = "도우미가 켜져 있다는 알림 (꺼도 동작하지만 켜 두길 권해요)",
+                    trailing = { if (notifOk) SmallTag("허용됨", c.ok, c.okTint, Ic.check) else SmallTag("꺼짐", c.warn, c.warnTint) },
+                    onClick = if (notifOk) null else ({ phonePerm.launch(needPerms) }),
+                )
+                Line()
+                SettingRow(
+                    icon = Ic.refresh, fg = if (batteryOk) c.ok else c.warn, bg = if (batteryOk) c.okTint else c.warnTint,
+                    title = "배터리 사용 제한 없음",
+                    sub = if (batteryOk) "삼성이 도우미를 재우지 않아요" else "눌러서 허용 · 안 하면 삼성이 도우미를 재울 수 있어요",
+                    trailing = { if (batteryOk) SmallTag("허용됨", c.ok, c.okTint, Ic.check) else SmallTag("허용 필요", c.warn, c.warnTint) },
+                    onClick = if (batteryOk) null else ({
+                        runCatching {
+                            ctx.startActivity(
+                                android.content.Intent(
+                                    android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                    android.net.Uri.parse("package:" + ctx.packageName),
+                                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        }
+                    }),
+                )
+                Line()
+                SettingRow(
+                    icon = Ic.phone, fg = if (serviceOn) c.ok else c.warn, bg = if (serviceOn) c.okTint else c.warnTint,
+                    title = "도우미 실행",
+                    sub = if (serviceOn) "백그라운드에서 통화를 기다리는 중" else "위 권한을 모두 허용하면 시작돼요",
+                    trailing = { if (serviceOn) SmallTag("실행 중", c.ok, c.okTint, Ic.check) else SmallTag("멈춤", c.warn, c.warnTint) },
+                    onClick = if (serviceOn) null else ({ com.bosang.search.call.CallAssistService.sync(ctx) }),
                 )
                 Line()
                 val last = remember(resumeTick, ver) { com.bosang.search.call.CallWatcher.lastEvent(ctx) }

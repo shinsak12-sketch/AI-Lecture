@@ -47,6 +47,26 @@
             android:textSize="12.5sp" />
     </LinearLayout>
 
+    <ImageView
+        android:id="@+id/r_call"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:layout_marginStart="6dp"
+        android:background="@drawable/widget_btn"
+        android:contentDescription="전화"
+        android:padding="8dp"
+        android:src="@drawable/ic_w_phone" />
+
+    <ImageView
+        android:id="@+id/r_sms"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:layout_marginStart="6dp"
+        android:background="@drawable/widget_btn"
+        android:contentDescription="문자"
+        android:padding="8dp"
+        android:src="@drawable/ic_w_msg" />
+
     <TextView
         android:id="@+id/r_tag"
         android:layout_width="wrap_content"

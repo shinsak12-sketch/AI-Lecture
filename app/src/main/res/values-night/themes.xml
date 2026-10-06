@@ -4,4 +4,10 @@
         <item name="android:ambientShadowAlpha">0.10</item>
         <item name="android:spotShadowAlpha">0.40</item>
     </style>
+    <style name="Theme.BosangSearch.Popup" parent="Theme.BosangSearch">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.Dialog</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
 </resources>

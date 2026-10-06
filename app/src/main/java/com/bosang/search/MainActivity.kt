@@ -35,6 +35,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        com.bosang.search.call.CallAssistService.sync(this)
         resumeTick.intValue = resumeTick.intValue + 1
     }
 
@@ -56,6 +57,7 @@ class MainActivity : ComponentActivity() {
             "register" -> number?.let { Screen.Register(numbers = listOf(it)) }
             "case" -> case?.let { Screen.Case(it) }
             "person" -> number?.let { Screen.Person(it) }
+            "settings" -> Screen.Settings
             "search" -> {
                 ExternalNav.focusSearch.value = true
                 Screen.Home

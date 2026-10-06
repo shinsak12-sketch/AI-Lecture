@@ -9,7 +9,6 @@ import android.content.Intent
 import android.net.Uri
 import android.widget.RemoteViews
 import android.widget.RemoteViewsService
-import com.bosang.search.MainActivity
 import com.bosang.search.R
 import com.bosang.search.core.PhoneNumbers
 import com.bosang.search.data.Store
@@ -36,11 +35,11 @@ class SearchWidget : AppWidgetProvider() {
 
         private fun views(ctx: Context, id: Int): RemoteViews {
             val v = RemoteViews(ctx.packageName, R.layout.widget_search)
+            // 검색칸: 앱을 열지 않고 홈 화면 위에 작은 검색창
             val search = PendingIntent.getActivity(
                 ctx,
                 2,
-                Intent(ctx, MainActivity::class.java).putExtra("nav", "search")
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                Intent(ctx, QuickSearchActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
             v.setOnClickPendingIntent(R.id.w_search, search)
@@ -52,11 +51,11 @@ class SearchWidget : AppWidgetProvider() {
             @Suppress("DEPRECATION")
             v.setRemoteAdapter(R.id.w_list, svc)
             v.setEmptyView(R.id.w_list, R.id.w_empty)
-            // 줄마다 열 화면은 아래 줄에서 채움 (nav, case/number)
+            // 줄마다 할 일(열기 · 전화 · 문자)은 아래 줄에서 채워서 WidgetRouter 로
             val template = PendingIntent.getActivity(
                 ctx,
                 3,
-                Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+                Intent(ctx, WidgetRouter::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE,
             )
             v.setPendingIntentTemplate(R.id.w_list, template)
@@ -69,7 +68,15 @@ class WidgetService : RemoteViewsService() {
     override fun onGetViewFactory(intent: Intent): RemoteViewsFactory = Factory(applicationContext)
 }
 
-private class Row(val title: String, val sub: String, val badge: String, val isCase: Boolean, val target: String)
+private class Row(
+    val title: String,
+    val sub: String,
+    val badge: String,
+    val isCase: Boolean,
+    val target: String,
+    /** 전화·문자 버튼을 붙일 번호 */
+    val phone: String?,
+)
 
 private class Factory(private val ctx: Context) : RemoteViewsService.RemoteViewsFactory {
     private var rows: List<Row> = emptyList()
@@ -86,13 +93,17 @@ private class Factory(private val ctx: Context) : RemoteViewsService.RemoteViews
             if (!seen.add("c:$c")) return
             val links = store.linksForCase(c)
             if (links.isEmpty()) return
+            // 사건 줄: 가장 최근 특이사항이 있으면 그것을, 없으면 사람들
+            val latest = store.issuesForCase(c).firstOrNull()
             out.add(
                 Row(
                     title = c,
-                    sub = links.joinToString(" · ") { store.displayName(it.number) + " " + it.role },
+                    sub = latest?.let { it.kind.label + " · " + it.summary { n -> store.displayName(n) } }
+                        ?: links.joinToString(" · ") { store.displayName(it.number) + " " + it.role },
                     badge = store.nameOf(links.first().number)?.trim()?.firstOrNull()?.toString() ?: "#",
                     isCase = true,
                     target = c,
+                    phone = links.singleOrNull()?.number,
                 ),
             )
         }
@@ -108,6 +119,7 @@ private class Factory(private val ctx: Context) : RemoteViewsService.RemoteViews
                     badge = name?.trim()?.firstOrNull()?.toString() ?: "#",
                     isCase = false,
                     target = n,
+                    phone = n,
                 ),
             )
         }
@@ -136,6 +148,15 @@ private class Factory(private val ctx: Context) : RemoteViewsService.RemoteViews
                 else putExtra("nav", "person").putExtra("number", r.target)
             }
             setOnClickFillInIntent(R.id.r_root, fill)
+            val phone = r.phone
+            val vis = if (phone != null) android.view.View.VISIBLE else android.view.View.GONE
+            setViewVisibility(R.id.r_call, vis)
+            setViewVisibility(R.id.r_sms, vis)
+            setViewVisibility(R.id.r_tag, if (phone != null) android.view.View.GONE else android.view.View.VISIBLE)
+            if (phone != null) {
+                setOnClickFillInIntent(R.id.r_call, Intent().putExtra("act", "dial").putExtra("number", phone))
+                setOnClickFillInIntent(R.id.r_sms, Intent().putExtra("act", "sms").putExtra("number", phone))
+            }
         }
     }
 
@@ -143,4 +164,23 @@ private class Factory(private val ctx: Context) : RemoteViewsService.RemoteViews
     override fun getViewTypeCount(): Int = 1
     override fun getItemId(position: Int): Long = position.toLong()
     override fun hasStableIds(): Boolean = false
+}
+
+/** 위젯에서 누른 것을 받아 전화 · 문자 · 앱 화면으로 넘기고 바로 닫힘 */
+class WidgetRouter : android.app.Activity() {
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        super.onCreate(savedInstanceState)
+        val i = intent
+        val number = i.getStringExtra("number")
+        val next = when (i.getStringExtra("act")) {
+            "dial" -> number?.let { Intent(Intent.ACTION_DIAL, Uri.parse("tel:$it")) }
+            "sms" -> number?.let { Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$it")) }
+            else -> Intent(this, com.bosang.search.MainActivity::class.java).apply {
+                putExtras(i)
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+        }
+        if (next != null) runCatching { startActivity(next.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+        finish()
+    }
 }
