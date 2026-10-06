@@ -197,11 +197,11 @@ object CallOverlay {
 
     // ───────────── 통화 후 ─────────────
 
-    fun showAfter(ctx: Context, call: CallEntry) {
+    fun showAfter(ctx: Context, call: CallEntry, force: Boolean = false) {
         main.post {
             val store = Store.get(ctx)
             val links = store.linksForNumber(call.number)
-            if (links.isEmpty() && store.isQuiet(call.number)) return@post
+            if (!force && links.isEmpty() && store.isQuiet(call.number)) return@post
             hideAfter(ctx)
             val v = afterCard(ctx, store, call)
             add(ctx, v, Gravity.BOTTOM, ctx.dp(16f))
@@ -351,7 +351,9 @@ object CallOverlay {
             this.gravity = gravity or if (width == ViewGroup.LayoutParams.MATCH_PARENT) Gravity.CENTER_HORIZONTAL else 0
             this.y = y
         }
-        runCatching { ctx.getSystemService(WindowManager::class.java).addView(v, p) }
+        runCatching { ctx.getSystemService(WindowManager::class.java).addView(v, p) }.onFailure {
+            ctx.getSharedPreferences("call", Context.MODE_PRIVATE).edit().putString("err", it.javaClass.simpleName + ": " + it.message).apply()
+        }
     }
 
     private fun remove(ctx: Context, v: View) {

@@ -11,6 +11,10 @@ class CallReceiver : BroadcastReceiver() {
         if (intent.action != TelephonyManager.ACTION_PHONE_STATE_CHANGED) return
         @Suppress("DEPRECATION")
         val number = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
-        CallWatcher.onState(context.applicationContext, intent.getStringExtra(TelephonyManager.EXTRA_STATE), number)
+        // 통화 끝난 뒤 통화기록을 기다리는 동안 앱이 멈추지 않게 붙잡아 둠
+        val pending = goAsync()
+        CallWatcher.onState(context.applicationContext, intent.getStringExtra(TelephonyManager.EXTRA_STATE), number) {
+            runCatching { pending.finish() }
+        }
     }
 }

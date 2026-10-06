@@ -133,6 +133,25 @@ fun SettingsScreen(store: Store, data: PhoneData, resumeTick: Int) {
                     trailing = { if (overlayOk) SmallTag("허용됨", c.ok, c.okTint, Ic.check) else SmallTag("허용 필요", c.warn, c.warnTint) },
                     onClick = if (overlayOk) null else ({ openOverlaySettings() }),
                 )
+                Line()
+                val last = remember(resumeTick, ver) { com.bosang.search.call.CallWatcher.lastEvent(ctx) }
+                val err = remember(resumeTick, ver) { ctx.getSharedPreferences("call", android.content.Context.MODE_PRIVATE).getString("err", null) }
+                SettingRow(
+                    icon = Ic.info, fg = c.ink2, bg = c.chip,
+                    title = "마지막 통화 감지",
+                    sub = (last ?: "아직 감지한 통화가 없어요") + (err?.let { "\n창 오류: $it" } ?: ""),
+                )
+                Line()
+                SettingRow(
+                    icon = Ic.image, fg = c.brand, bg = c.brandTint,
+                    title = "통화 끝난 뒤 창 미리 보기",
+                    sub = "가장 최근 통화로 창을 띄워 봐요",
+                    onClick = {
+                        if (!com.bosang.search.call.CallWatcher.preview(ctx)) {
+                            android.widget.Toast.makeText(ctx, if (!overlayOk) "다른 앱 위에 표시를 먼저 허용해 주세요" else "최근 통화가 없어요", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                )
                 if (quiet > 0) {
                     Line()
                     SettingRow(
