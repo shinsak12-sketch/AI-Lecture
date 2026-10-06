@@ -28,6 +28,10 @@ jobs:
       - name: 테스트 + APK 빌드
         run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug
 
+      - name: 테스트 결과
+        if: always()
+        run: grep -h "<testsuite " app/build/test-results/testDebugUnitTest/*.xml | sed -E 's/.*name="([^"]+)" tests="([0-9]+)" skipped="([0-9]+)" failures="([0-9]+)" errors="([0-9]+)".*/\1 tests=\2 skipped=\3 failures=\4 errors=\5/'
+
       - name: APK 이름 정리
         run: cp app/build/outputs/apk/debug/app-debug.apk bosang-search.apk
 
