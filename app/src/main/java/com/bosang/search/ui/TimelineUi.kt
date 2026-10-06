@@ -355,7 +355,7 @@ private fun SmsCard(item: TimelineItem.Sms, who: WhoInfo?, showWho: Boolean, onM
                     clipboard.setText(AnnotatedString(item.sms.body))
                     Toast.makeText(ctx, "문자 내용을 복사했어요", Toast.LENGTH_SHORT).show()
                 },
-            ) { expanded = !expanded },
+            ) { sendSms(ctx, item.number) },
         brush = brush,
     ) {
         Column(Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
@@ -387,13 +387,26 @@ private fun SmsCard(item: TimelineItem.Sms, who: WhoInfo?, showWho: Boolean, onM
             }
             if (item.sms.body.isNotBlank()) {
                 Spacer(Modifier.height(6.dp))
+                var overflow by remember { mutableStateOf(false) }
                 Text(
                     item.sms.body,
                     style = ts(14.5f, W4, lineHeight = 1.5f),
                     color = fg,
                     maxLines = if (expanded) Int.MAX_VALUE else 7,
                     overflow = TextOverflow.Ellipsis,
+                    onTextLayout = { if (!expanded) overflow = it.hasVisualOverflow },
                 )
+                if (overflow || expanded) {
+                    Text(
+                        if (expanded) "접기" else "전체 보기",
+                        style = ts(13f, W8),
+                        color = dirColor,
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .press(scale = 0.94f) { expanded = !expanded }
+                            .padding(vertical = 2.dp),
+                    )
+                }
             }
             if (item.sms.images.isNotEmpty()) {
                 Row(
@@ -437,7 +450,8 @@ private fun CallCard(item: TimelineItem.Call, who: WhoInfo?, player: Player, sho
         incoming -> c.brand to c.brandTint
         else -> c.ok to c.okTint
     }
-    BCard(Modifier.fillMaxWidth()) {
+    val ctx = LocalContext.current
+    BCard(Modifier.fillMaxWidth().press(scale = 0.985f) { dial(ctx, call.number) }) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
@@ -489,4 +503,18 @@ private fun MoreBtn(tint: Color = B.c.ink3, onMore: () -> Unit) {
             .clip(RoundedCornerShape(9.dp))
             .press(scale = 0.9f, onClick = onMore),
     ) { Icon(Ic.moreV, "더보기", tint = tint, modifier = Modifier.size(17.dp)) }
+}
+
+/** 그 번호로 문자 보내기 (기본 문자 앱) */
+fun sendSms(ctx: android.content.Context, number: String) {
+    runCatching {
+        ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_SENDTO, Uri.parse("smsto:$number")).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
+}
+
+/** 그 번호로 전화 걸기 화면 (기본 전화 앱) */
+fun dial(ctx: android.content.Context, number: String) {
+    runCatching {
+        ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_DIAL, Uri.parse("tel:$number")).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+    }
 }

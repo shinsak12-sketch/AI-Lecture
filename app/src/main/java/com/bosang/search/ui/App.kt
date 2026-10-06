@@ -199,6 +199,7 @@ fun App(resumeTick: Int) {
                     onOpenCase = { push(Screen.Case(it)) },
                     onRegister = { push(Screen.Register(numbers = listOf(s.number))) },
                     onIssue = { caseNo, src -> push(Screen.IssueEdit(caseNo, source = src)) },
+                    onPhoto = { ref -> push(Screen.Photo(ref, null)) },
                 )
                 is Screen.IssueEdit -> IssueEditorScreen(
                     store = store,

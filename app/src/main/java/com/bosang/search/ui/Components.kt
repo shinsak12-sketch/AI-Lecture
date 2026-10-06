@@ -79,6 +79,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.max
+import kotlinx.coroutines.launch
 
 // ───────────────────────── 날짜·시간 ─────────────────────────
 
@@ -1161,4 +1162,42 @@ fun FloatingBar(modifier: Modifier = Modifier, content: @Composable RowScope.() 
             .padding(start = 16.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
         content = content,
     )
+}
+
+/** 많이 내려가면 아래 가운데에 뜨는 [맨 위로] */
+@Composable
+fun ScrollTopButton(state: androidx.compose.foundation.lazy.LazyListState, bottom: Dp, modifier: Modifier = Modifier) {
+    val c = B.c
+    val show by remember(state) { androidx.compose.runtime.derivedStateOf { state.firstVisibleItemIndex > 3 } }
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    androidx.compose.animation.AnimatedVisibility(
+        visible = show,
+        enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.scaleIn(initialScale = 0.8f),
+        exit = androidx.compose.animation.fadeOut() + androidx.compose.animation.scaleOut(targetScale = 0.8f),
+        modifier = modifier
+            .navigationBarsPadding()
+            .padding(bottom = bottom),
+    ) {
+        val shape = RoundedCornerShape(20.dp)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier
+                .press(scale = 0.92f) {
+                    scope.launch {
+                        if (state.firstVisibleItemIndex > 12) state.scrollToItem(6)
+                        state.animateScrollToItem(0)
+                    }
+                }
+                .height(40.dp)
+                .depth(shape, Depth.FLOAT)
+                .clip(shape)
+                .background(c.glass)
+                .border(1.dp, c.glassLine, shape)
+                .padding(start = 12.dp, end = 15.dp),
+        ) {
+            Icon(Ic.up, null, tint = c.ink, modifier = Modifier.size(17.dp))
+            Spacer(Modifier.width(5.dp))
+            Text("맨 위로", style = ts(13.5f, W8), color = c.ink)
+        }
+    }
 }

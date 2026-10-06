@@ -391,7 +391,11 @@ fun PhotoViewScreen(store: Store, ref: String, photoId: String?, onBack: () -> U
     val photo = remember(ver, photoId) { photoId?.let { store.photo(it) } }
     val shownRef = photo?.let { Photos.shown(it) } ?: ref
     var bmp by remember(shownRef) { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(shownRef) { bmp = Photos.loadFull(ctx, shownRef) }
+    var failed by remember(shownRef) { mutableStateOf(false) }
+    LaunchedEffect(shownRef) {
+        bmp = Photos.loadFull(ctx, shownRef)
+        failed = bmp == null
+    }
     var scale by remember { mutableFloatStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
     var drawing by remember { mutableStateOf(false) }
@@ -399,7 +403,14 @@ fun PhotoViewScreen(store: Store, ref: String, photoId: String?, onBack: () -> U
 
     Box(Modifier.fillMaxSize().background(Color(0xFF07090F))) {
         val b = bmp
-        if (b == null) {
+        if (b == null && failed) {
+            Text(
+                "사진을 열 수 없어요.\n문자가 지워졌거나 사진이 옮겨졌을 수 있어요.",
+                style = ts(14f, W6, lineHeight = 1.5f).copy(textAlign = androidx.compose.ui.text.style.TextAlign.Center),
+                color = Color.White.copy(alpha = 0.7f),
+                modifier = Modifier.align(Alignment.Center).padding(24.dp),
+            )
+        } else if (b == null) {
             CircularProgressIndicator(color = Color.White, modifier = Modifier.align(Alignment.Center).size(26.dp))
         } else {
             Image(

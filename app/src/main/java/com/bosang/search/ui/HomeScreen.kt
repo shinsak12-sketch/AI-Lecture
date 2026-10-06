@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -94,7 +95,10 @@ fun HomeScreen(
         if (searching) directory = withContext(Dispatchers.IO) { data.directory() }
     }
 
+    val listState = rememberLazyListState()
+    Box(Modifier.fillMaxSize()) {
     LazyColumn(
+        state = listState,
         contentPadding = PaddingValues(bottom = 140.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
@@ -162,6 +166,8 @@ fun HomeScreen(
                 )
             }
         }
+    }
+    ScrollTopButton(listState, bottom = if (player.currentKey != null) 190.dp else 108.dp, modifier = Modifier.align(Alignment.BottomCenter))
     }
 }
 

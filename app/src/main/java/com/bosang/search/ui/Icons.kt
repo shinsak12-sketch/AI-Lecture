@@ -98,6 +98,7 @@ object Ic {
         line("moreV", dots = listOf(circle(12f, 5.5f, 1.6f), circle(12f, 12f, 1.6f), circle(12f, 18.5f, 1.6f)))
     }
 
+    val up by lazy { line("up", "M12 19V5M6 11l6-6 6 6", width = 2.2f) }
     val play by lazy { solid("play", "M7 4.6v14.8a1 1 0 0 0 1.5.86l12.3-7.4a1 1 0 0 0 0-1.72L8.5 3.74A1 1 0 0 0 7 4.6z") }
     val pause by lazy {
         solid(

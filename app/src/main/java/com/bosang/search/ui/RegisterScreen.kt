@@ -309,6 +309,12 @@ fun RegisterScreen(
             }
         }
 
+        ScrollTopButton(
+            listState,
+            bottom = if (!sheet && selected.isNotEmpty()) 96.dp else 20.dp,
+            modifier = Modifier.align(Alignment.BottomCenter),
+        )
+
         if (showIndex) {
             val current by remember(letterIndex) {
                 derivedStateOf {

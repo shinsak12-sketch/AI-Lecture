@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -178,8 +179,10 @@ fun CaseScreen(
         calls?.maxOfOrNull { it.timeMillis },
     ).maxOrNull()
 
+    val listState = rememberLazyListState()
+    Box(Modifier.fillMaxSize()) {
     LazyColumn(
-        contentPadding = PaddingValues(bottom = 120.dp),
+        state = listState,        contentPadding = PaddingValues(bottom = 120.dp),
         modifier = Modifier
             .fillMaxSize()
             .background(c.bg),
@@ -365,10 +368,15 @@ fun CaseScreen(
                     attached = { issuesByRecord[it.recordKey()].orEmpty() },
                     nameOf = nameOf,
                     onIssue = { onIssue(it.id, null) },
-                    onImage = { onPhoto(it.toString(), null) },
+                    onImage = { u ->
+                        val saved = store.photo("mms_${u.lastPathSegment}_$caseNo")
+                        if (saved != null) onPhoto(Photos.shown(saved), saved.id) else onPhoto(u.toString(), null)
+                    },
                 ),
             )
         }
+    }
+    ScrollTopButton(listState, bottom = if (player.currentKey != null) 96.dp else 20.dp, modifier = Modifier.align(Alignment.BottomCenter))
     }
 
     if (photoAdd) {
@@ -413,6 +421,16 @@ fun CaseScreen(
                     recordMenu = null
                     onIssue(null, item.toSource())
                 })
+                when (item) {
+                    is TimelineItem.Sms -> add(Option("문자 보내기", Ic.msg) {
+                        recordMenu = null
+                        sendSms(ctx, item.number)
+                    })
+                    else -> add(Option("전화 걸기", Ic.phone) {
+                        recordMenu = null
+                        dial(ctx, item.number)
+                    })
+                }
                 when (item) {
                     is TimelineItem.Rec -> add(Option("공유", Ic.share) {
                         recordMenu = null

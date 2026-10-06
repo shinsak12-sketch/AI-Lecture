@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -72,6 +73,7 @@ fun PersonScreen(
     onOpenCase: (String) -> Unit,
     onRegister: () -> Unit,
     onIssue: (caseNo: String, source: IssueSource) -> Unit,
+    onPhoto: (ref: String) -> Unit,
 ) {
     val c = B.c
     val ctx = LocalContext.current
@@ -118,8 +120,10 @@ fun PersonScreen(
     var pickCaseFor by remember { mutableStateOf<TimelineItem?>(null) }
     var moreMenu by remember { mutableStateOf(false) }
 
+    val listState = rememberLazyListState()
+    Box(Modifier.fillMaxSize()) {
     LazyColumn(
-        contentPadding = PaddingValues(bottom = 120.dp),
+        state = listState,        contentPadding = PaddingValues(bottom = 120.dp),
         modifier = Modifier
             .fillMaxSize()
             .background(c.bg),
@@ -235,9 +239,11 @@ fun PersonScreen(
             player = player,
             emptyText = if (kind == Kind.REC) "이 번호의 통화녹음을 폰에서 찾지 못했어요." else "이 번호와의 ${kind.label} 기록이 없어요.",
             who = null,
-            actions = TimelineActions(onMore = { recordMenu = it }),
+            actions = TimelineActions(onMore = { recordMenu = it }, onImage = { onPhoto(it.toString()) }),
             loadingText = if (kind == Kind.REC) "통화녹음을 찾는 중 (파일이 많으면 조금 걸려요)" else "불러오는 중",
         )
+    }
+    ScrollTopButton(listState, bottom = if (player.currentKey != null) 96.dp else 20.dp, modifier = Modifier.align(Alignment.BottomCenter))
     }
 
     recordMenu?.let { item ->
@@ -256,6 +262,16 @@ fun PersonScreen(
                     add(Option("특이사항 남기기", Ic.pen) {
                         recordMenu = null
                         if (links.size == 1) onIssue(links.first().caseNo, item.toSource()) else pickCaseFor = item
+                    })
+                }
+                when (item) {
+                    is TimelineItem.Sms -> add(Option("문자 보내기", Ic.msg) {
+                        recordMenu = null
+                        sendSms(ctx, item.number)
+                    })
+                    else -> add(Option("전화 걸기", Ic.phone) {
+                        recordMenu = null
+                        dial(ctx, item.number)
                     })
                 }
                 when (item) {
