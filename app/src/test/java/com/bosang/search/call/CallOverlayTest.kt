@@ -60,12 +60,38 @@ class CallOverlayTest {
         assertFalse(CallOverlay.bubbleShowing())
     }
 
-    @Test fun 사건없는번호는_통화중_말풍선없음() {
+    @Test fun 사건없는번호도_통화중_작은동그라미() {
         Store.get(ctx).setCallAssist(true)
         CallWatcher.onState(ctx, TelephonyManager.EXTRA_STATE_OFFHOOK, "01099990000") {}
         idle()
-        assertFalse(CallOverlay.bubbleShowing())
+        assertTrue(CallOverlay.bubbleShowing())
         CallWatcher.onState(ctx, TelephonyManager.EXTRA_STATE_IDLE, null) {}
         idle()
+        assertFalse(CallOverlay.bubbleShowing())
+    }
+
+    @Test fun 내가건전화_번호가_안와도_앱에서_건번호로_말풍선() {
+        val store = Store.get(ctx)
+        store.upsert("26-00077777", listOf(Triple("01033334444", "피해자", "박철수")))
+        store.setCallAssist(true)
+        CallWatcher.rememberDial(ctx, "010-3333-4444")
+        CallWatcher.onState(ctx, TelephonyManager.EXTRA_STATE_OFFHOOK, null, "직접")
+        idle()
+        assertTrue(CallOverlay.bubbleShowing())
+        CallWatcher.onState(ctx, TelephonyManager.EXTRA_STATE_IDLE, null, "직접")
+        idle()
+    }
+
+    @Test fun 같은통화는_끝난뒤창_한번만() {
+        Store.get(ctx).setCallAssist(true)
+        val call = CallEntry("01077778888", null, System.currentTimeMillis() - 30_000, 20, CallLog.Calls.OUTGOING_TYPE)
+        assertTrue(CallWatcher.ended(ctx, call, "통화기록"))
+        idle()
+        assertTrue(CallOverlay.afterShowing())
+        CallOverlay.hideAfter(ctx)
+        idle()
+        assertFalse(CallWatcher.ended(ctx, call, "통화 상태"))
+        idle()
+        assertFalse(CallOverlay.afterShowing())
     }
 }

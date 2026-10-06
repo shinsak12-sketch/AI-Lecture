@@ -237,7 +237,10 @@ class WidgetRouter : android.app.Activity() {
         val i = intent
         val number = i.getStringExtra("number")
         val next = when (i.getStringExtra("act")) {
-            "dial" -> number?.let { Intent(Intent.ACTION_DIAL, Uri.parse("tel:$it")) }
+            "dial" -> number?.let {
+                com.bosang.search.call.CallWatcher.rememberDial(this, it)
+                Intent(Intent.ACTION_DIAL, Uri.parse("tel:$it"))
+            }
             "sms" -> number?.let { Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$it")) }
             "clear" -> {
                 SearchWidget.setQuery(this, "")

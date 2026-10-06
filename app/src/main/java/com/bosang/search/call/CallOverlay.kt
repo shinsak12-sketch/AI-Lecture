@@ -87,8 +87,12 @@ object CallOverlay {
     fun showBubble(ctx: Context, number: String) {
         onMain {
             val store = Store.get(ctx)
-            if (store.linksForNumber(number).isEmpty() && store.issuesForNumber(number).isEmpty()) return@onMain
             closeBubbleNow()
+            if (store.linksForNumber(number).isEmpty() && store.issuesForNumber(number).isEmpty()) {
+                // 사건 없는 번호: 방해되지 않게 작은 동그라미만 (누르면 [사건에 연결])
+                collapse(ctx, store, number)
+                return@onMain
+            }
             val v = bubbleCard(ctx, store, number)
             if (add(ctx, v, Gravity.TOP, ctx.dp(200f))) bubble = v
         }
@@ -136,7 +140,10 @@ object CallOverlay {
             setPadding(ctx.dp(14f), ctx.dp(6f), ctx.dp(14f), ctx.dp(4f))
         }
         if (issues.isEmpty()) {
-            body.addView(text(ctx, "아직 남긴 특이사항이 없어요", 13.5f, 1, INK2).apply { setPadding(0, ctx.dp(10f), 0, ctx.dp(10f)) })
+            body.addView(
+                text(ctx, if (links.isEmpty()) "사건에 연결되지 않은 번호예요" else "아직 남긴 특이사항이 없어요", 13.5f, 1, INK2)
+                    .apply { setPadding(0, ctx.dp(10f), 0, ctx.dp(10f)) },
+            )
         } else {
             issues.forEach { iss ->
                 val row = LinearLayout(ctx).apply {
@@ -169,9 +176,13 @@ object CallOverlay {
         }
         foot.addView(button(ctx, "접기", false) { collapse(ctx, store, number) }, weighted(ctx, right = 4f))
         foot.addView(
-            button(ctx, if (links.size == 1) "사건 보기" else "기록 보기", true) {
+            button(ctx, when (links.size) { 0 -> "사건에 연결"; 1 -> "사건 보기"; else -> "기록 보기" }, true) {
                 val i = Intent(ctx, MainActivity::class.java)
-                if (links.size == 1) i.putExtra("nav", "case").putExtra("case", links[0].caseNo) else i.putExtra("nav", "person").putExtra("number", number)
+                when (links.size) {
+                    0 -> i.putExtra("nav", "register").putExtra("number", number)
+                    1 -> i.putExtra("nav", "case").putExtra("case", links[0].caseNo)
+                    else -> i.putExtra("nav", "person").putExtra("number", number)
+                }
                 open(ctx, i)
             },
             weighted(ctx, left = 4f),

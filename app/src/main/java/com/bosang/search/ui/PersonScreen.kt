@@ -179,7 +179,7 @@ fun PersonScreen(
                                 modifier = Modifier.padding(top = 20.dp),
                             ) {
                                 QuickAction("전화", Ic.phone) {
-                                    runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number"))) }
+                                    dial(ctx, number)
                                 }
                                 QuickAction("문자", Ic.msg) {
                                     runCatching { ctx.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$number"))) }

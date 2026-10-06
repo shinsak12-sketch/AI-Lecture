@@ -514,6 +514,7 @@ fun sendSms(ctx: android.content.Context, number: String) {
 
 /** 그 번호로 전화 걸기 화면 (기본 전화 앱) */
 fun dial(ctx: android.content.Context, number: String) {
+    com.bosang.search.call.CallWatcher.rememberDial(ctx, number)
     runCatching {
         ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_DIAL, Uri.parse("tel:$number")).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
     }

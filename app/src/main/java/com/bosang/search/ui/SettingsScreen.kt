@@ -180,12 +180,12 @@ fun SettingsScreen(store: Store, data: PhoneData, resumeTick: Int) {
                     onClick = if (serviceOn) null else ({ com.bosang.search.call.CallAssistService.sync(ctx) }),
                 )
                 Line()
-                val last = remember(resumeTick, ver) { com.bosang.search.call.CallWatcher.lastEvent(ctx) }
+                val events = remember(resumeTick, ver) { com.bosang.search.call.CallWatcher.events(ctx) }
                 val err = remember(resumeTick, ver) { ctx.getSharedPreferences("call", android.content.Context.MODE_PRIVATE).getString("err", null) }
                 SettingRow(
                     icon = Ic.info, fg = c.ink2, bg = c.chip,
-                    title = "마지막 통화 감지",
-                    sub = (last ?: "아직 감지한 통화가 없어요") + (err?.let { "\n창 오류: $it" } ?: ""),
+                    title = "감지 기록 (최근 순)",
+                    sub = (events.take(10).joinToString("\n").ifEmpty { "아직 감지한 통화가 없어요" }) + (err?.let { "\n창 오류: $it" } ?: ""),
                 )
                 Line()
                 SettingRow(

@@ -12,7 +12,13 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.database.ContentObserver
+import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
+import android.provider.CallLog
+import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -27,6 +33,8 @@ import com.bosang.search.data.Store
  */
 class CallAssistService : Service() {
     private var receiver: BroadcastReceiver? = null
+    private var callback: Any? = null
+    private var logObserver: ContentObserver? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -47,6 +55,35 @@ class CallAssistService : Service() {
         }
         ContextCompat.registerReceiver(this, r, IntentFilter(TelephonyManager.ACTION_PHONE_STATE_CHANGED), ContextCompat.RECEIVER_EXPORTED)
         receiver = r
+
+        // 알림이 안 와도: 통화 상태를 안드로이드에 직접 구독 (번호는 안 옴)
+        if (Build.VERSION.SDK_INT >= 31) {
+            runCatching {
+                val tm = getSystemService(TelephonyManager::class.java)
+                val cb = object : TelephonyCallback(), TelephonyCallback.CallStateListener {
+                    override fun onCallStateChanged(state: Int) {
+                        val s = when (state) {
+                            TelephonyManager.CALL_STATE_RINGING -> TelephonyManager.EXTRA_STATE_RINGING
+                            TelephonyManager.CALL_STATE_OFFHOOK -> TelephonyManager.EXTRA_STATE_OFFHOOK
+                            else -> TelephonyManager.EXTRA_STATE_IDLE
+                        }
+                        CallWatcher.onState(applicationContext, s, null, "직접")
+                    }
+                }
+                tm.registerTelephonyCallback(mainExecutor, cb)
+                callback = cb
+            }.onFailure { CallWatcher.log(this, "통화 상태 구독 실패: ${it.javaClass.simpleName}") }
+        }
+        // 통화가 끝나 통화기록에 새 줄이 생기면 → 통화 끝난 뒤 창
+        val obs = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                CallWatcher.onCallLogChanged(applicationContext)
+            }
+        }
+        runCatching { contentResolver.registerContentObserver(CallLog.Calls.CONTENT_URI, true, obs) }
+            .onFailure { CallWatcher.log(this, "통화기록 구독 실패: ${it.javaClass.simpleName}") }
+        logObserver = obs
+        CallWatcher.log(this, "도우미 시작")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -61,6 +98,12 @@ class CallAssistService : Service() {
         running = false
         receiver?.let { runCatching { unregisterReceiver(it) } }
         receiver = null
+        if (Build.VERSION.SDK_INT >= 31) {
+            (callback as? TelephonyCallback)?.let { cb -> runCatching { getSystemService(TelephonyManager::class.java).unregisterTelephonyCallback(cb) } }
+        }
+        callback = null
+        logObserver?.let { runCatching { contentResolver.unregisterContentObserver(it) } }
+        logObserver = null
         super.onDestroy()
     }
 
