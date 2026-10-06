@@ -101,6 +101,14 @@ class Store private constructor(private val file: File) {
         changed()
     }
 
+    /** 앱이 저장한 것 전부 지우기 (폰의 문자·녹음 원본은 그대로) */
+    fun clearAll() {
+        synchronized(this) {
+            links.clear(); names.clear(); recCache.clear(); recent.clear()
+        }
+        changed()
+    }
+
     fun touchRecent(key: String) {
         synchronized(this) {
             recent.remove(key)

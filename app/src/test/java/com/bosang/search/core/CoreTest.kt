@@ -177,4 +177,14 @@ class HangulTest {
         assertFalse(Hangul.matches("홍길동", "김"))
         assertFalse(Hangul.matches("홍길동", "ㄱㅎ"))
     }
+
+    @Test fun 연락처색인() {
+        assertEquals("ㄱ", Hangul.indexOf("강남정비"))
+        assertEquals("ㄱ", Hangul.indexOf("김영희"))
+        assertEquals("ㄷ", Hangul.indexOf("딸기농장"))
+        assertEquals("ㅎ", Hangul.indexOf(" 홍길동"))
+        assertEquals("A", Hangul.indexOf("Dr.Kim"))
+        assertEquals("#", Hangul.indexOf("010-1234"))
+        assertEquals("#", Hangul.indexOf(""))
+    }
 }

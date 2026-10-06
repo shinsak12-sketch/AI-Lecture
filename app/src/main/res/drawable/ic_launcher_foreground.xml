@@ -1,26 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- 앱 안 로고와 같은 문서 + 돋보기 (24 격자를 가운데 44 크기로) -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- 서류 -->
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M36,28h26a4,4 0,0 1,4 4v17h-5v-16h-24v40h13v5h-14a4,4 0,0 1,-4 -4v-42a4,4 0,0 1,4 -4z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M41,38h16v3h-16z M41,45h16v3h-16z M41,52h9v3h-9z" />
-    <!-- 돋보기 -->
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeWidth="5"
-        android:pathData="M53,64a11,11 0,1 1,22 0a11,11 0,1 1,-22 0" />
-    <path
-        android:fillColor="#00000000"
-        android:strokeColor="#FFFFFF"
-        android:strokeLineCap="round"
-        android:strokeWidth="6"
-        android:pathData="M72,73L80,81" />
+    <group
+        android:scaleX="1.875"
+        android:scaleY="1.875"
+        android:translateX="31.5"
+        android:translateY="31.5">
+        <path
+            android:fillColor="#00000000"
+            android:strokeColor="#FFFFFF"
+            android:strokeWidth="1.9"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M14,3H7a2,2 0,0 0,-2 2v14a2,2 0,0 0,2 2h4 M14,3v4a1,1 0,0 0,1 1h4 M19,8v2 M13.5,16.5a3,3 0,1 0,6 0a3,3 0,1 0,-6 0 M21,21l-2.3,-2.3" />
+    </group>
 </vector>

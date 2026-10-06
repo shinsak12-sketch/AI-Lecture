@@ -1,29 +1,28 @@
 package com.bosang.search.ui
 
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -33,18 +32,29 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.bosang.search.core.PhoneNumbers
+import com.bosang.search.data.CaseLink
+import com.bosang.search.data.CaseSummary
 import com.bosang.search.data.PhoneData
 import com.bosang.search.data.Player
 import com.bosang.search.data.RecordingIndex
 import com.bosang.search.data.Store
+import com.bosang.search.data.Summaries
 import com.bosang.search.data.TimelineItem
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PersonScreen(
     store: Store,
@@ -56,6 +66,10 @@ fun PersonScreen(
     onOpenCase: (String) -> Unit,
     onRegister: () -> Unit,
 ) {
+    val c = B.c
+    val ctx = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    StatusBarIcons(lightContent = true)
     val ver = store.version.intValue
     val links = remember(ver, number) { store.linksForNumber(number) }
     var contactName by remember { mutableStateOf<String?>(null) }
@@ -63,74 +77,244 @@ fun PersonScreen(
         store.touchRecent("p:$number")
         contactName = withContext(Dispatchers.IO) { data.contactName(number) }
     }
-    val title = store.nameOf(number) ?: contactName ?: PhoneNumbers.format(number)
+    val name = store.nameOf(number) ?: contactName
+    val formatted = PhoneNumbers.format(number)
 
     var items by remember(number) { mutableStateOf<List<TimelineItem>?>(null) }
+    var summaries by remember { mutableStateOf<Map<String, CaseSummary>?>(null) }
     var refresh by remember { mutableIntStateOf(0) }
     LaunchedEffect(number, resumeTick, refresh) {
         items = RecordingIndex.timeline(setOf(number), data, store)
     }
+    LaunchedEffect(links, resumeTick, refresh) {
+        summaries = Summaries.forCases(links.map { it.caseNo }, data, store)
+    }
     var kind by remember { mutableStateOf(KindFilter.ALL) }
+    var kindMenu by remember { mutableStateOf(false) }
+    var moreMenu by remember { mutableStateOf(false) }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(title, fontWeight = FontWeight.Bold)
-                        if (title != PhoneNumbers.format(number)) {
+    LazyColumn(
+        contentPadding = PaddingValues(bottom = 120.dp),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(c.bg),
+    ) {
+        item(key = "hero") {
+            Overlap(
+                overlap = 64.dp,
+                top = {
+                    Hero(bottomPadding = 92.dp) {
+                        HeroTopBar(
+                            left = { GlassCircle(Ic.back, "뒤로", onClick = onBack) },
+                            right = {
+                                Box {
+                                    GlassCircle(Ic.more, "더보기") { moreMenu = true }
+                                    DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
+                                        MenuItem("번호 복사", Ic.copy) {
+                                            moreMenu = false
+                                            clipboard.setText(AnnotatedString(formatted))
+                                            Toast.makeText(ctx, "번호를 복사했어요", Toast.LENGTH_SHORT).show()
+                                        }
+                                        MenuItem("통화녹음 다시 찾기", Ic.refresh) {
+                                            moreMenu = false
+                                            RecordingIndex.invalidate()
+                                            refresh++
+                                        }
+                                    }
+                                }
+                            },
+                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                            BigAvatar(name, number)
                             Text(
-                                PhoneNumbers.format(number),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                name ?: formatted,
+                                style = ts(27f, W8, tracking = -0.03f, num = name == null),
+                                color = Color.White,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(top = 14.dp),
                             )
+                            Text(
+                                if (name != null) formatted else "저장 안 된 번호",
+                                style = ts(14.5f, W6, num = true),
+                                color = Color.White.copy(alpha = 0.66f),
+                                modifier = Modifier.padding(top = 3.dp),
+                            )
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(22.dp),
+                                modifier = Modifier.padding(top = 20.dp),
+                            ) {
+                                QuickAction("전화", Ic.phone) {
+                                    runCatching { ctx.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$number"))) }
+                                }
+                                QuickAction("문자", Ic.msg) {
+                                    runCatching { ctx.startActivity(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:$number"))) }
+                                }
+                                QuickAction("사건 연결", Ic.link, onClick = onRegister)
+                            }
                         }
                     }
                 },
-                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "뒤로") } },
-                actions = {
-                    IconButton(onClick = {
-                        RecordingIndex.invalidate()
-                        refresh++
-                    }) { Icon(Icons.Filled.Refresh, "다시 찾기") }
+                bottom = {
+                    if (links.isEmpty()) {
+                        BCard(
+                            level = Depth.LIFT,
+                            modifier = Modifier
+                                .padding(horizontal = 16.dp)
+                                .fillMaxWidth()
+                                .press(scale = 0.98f, onClick = onRegister),
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(16.dp)) {
+                                IconTile(Ic.link, c.brand, c.brandTint, 42.dp, 14.dp)
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text("아직 연결된 사건이 없어요", style = ts(15.5f, W8), color = c.ink)
+                                    Text("눌러서 사고번호에 연결하기", style = ts(13f, W4), color = c.ink2)
+                                }
+                                androidx.compose.material3.Icon(Ic.chevron, null, tint = c.ink3, modifier = Modifier.size(16.dp))
+                            }
+                        }
+                    } else {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                        ) {
+                            items(links, key = { it.caseNo }) { link ->
+                                PassCard(link, store, summaries?.get(link.caseNo)) { onOpenCase(link.caseNo) }
+                            }
+                        }
+                    }
                 },
             )
-        },
-    ) { pad ->
-        LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier
-                .padding(pad)
-                .fillMaxSize(),
-        ) {
-            if (links.isNotEmpty()) {
-                item { SectionTitle("연결된 사건 ${links.size}건") }
-                items(links, key = { "c-" + it.caseNo }) { link ->
-                    RowCard(onClick = { onOpenCase(link.caseNo) }) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(link.caseNo, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.width(8.dp))
-                            RoleTag(link.role)
-                        }
-                    }
-                }
-            } else {
-                item {
-                    Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer),
-                        modifier = Modifier.padding(top = 8.dp),
-                    ) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("아직 사건에 연결되지 않은 번호예요.")
-                            Button(onClick = onRegister, modifier = Modifier.fillMaxWidth()) { Text("이 번호를 사건에 등록") }
+        }
+
+        item(key = "tl-head") {
+            SectionHeader(
+                "전체 기록",
+                items?.filterKind(kind)?.size,
+                modifier = Modifier.padding(top = if (links.isEmpty()) 8.dp else 0.dp),
+            ) {
+                Box {
+                    HeaderAction(if (kind == KindFilter.ALL) "사건 구분 없이" else kind.label, trailing = Ic.down) { kindMenu = true }
+                    DropdownMenu(expanded = kindMenu, onDismissRequest = { kindMenu = false }) {
+                        KindFilter.entries.forEach { k ->
+                            androidx.compose.material3.DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        "${k.label} ${items.orEmpty().filterKind(k).size}",
+                                        style = ts(15f, if (k == kind) W8 else W6, num = true),
+                                    )
+                                },
+                                onClick = {
+                                    kind = k
+                                    kindMenu = false
+                                },
+                            )
                         }
                     }
                 }
             }
-            item { SectionTitle("문자 · 통화녹음 (사건 구분 없이 전부)") }
-            item { KindFilterRow(items.orEmpty(), kind) { kind = it } }
-            timeline(items?.filterKind(kind), { null }, player)
+        }
+        timeline(
+            items = items?.filterKind(kind),
+            player = player,
+            emptyText = "이 번호와 주고받은 문자나 통화녹음을 폰에서 찾지 못했어요.",
+            who = null,
+        )
+    }
+}
+
+@Composable
+private fun BigAvatar(name: String?, number: String) {
+    val (a, b) = avatarColors(number, name != null)
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .padding(top = 4.dp)
+            .size(98.dp)
+            .clip(CircleShape)
+            .background(Color.White.copy(alpha = 0.12f)),
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(88.dp)
+                .shadow(16.dp, CircleShape, ambientColor = Color(0xFF1E3CC8), spotColor = Color(0xFF1E3CC8))
+                .clip(CircleShape)
+                .background(Brush.linearGradient(listOf(a, b))),
+        ) {
+            if (name == null) {
+                androidx.compose.material3.Icon(Ic.phone, null, tint = Color.White, modifier = Modifier.size(38.dp))
+            } else {
+                Text(initialOf(name), style = ts(34f, W8, tracking = 0f), color = Color.White)
+            }
+        }
+    }
+}
+
+@Composable
+private fun QuickAction(label: String, icon: androidx.compose.ui.graphics.vector.ImageVector, onClick: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        GlassCircle(icon, label, size = 48.dp, iconSize = 20.dp, onClick = onClick)
+        Spacer(Modifier.height(6.dp))
+        Text(label, style = ts(12f, W7), color = Color.White.copy(alpha = 0.82f))
+    }
+}
+
+/** 지갑 속 카드처럼 생긴 연결된 사건 */
+@Composable
+private fun PassCard(link: CaseLink, store: Store, summary: CaseSummary?, onClick: () -> Unit) {
+    val c = B.c
+    val others = store.linksForCase(link.caseNo).filter { it.number != link.number }
+    val alt = Math.floorMod(link.caseNo.hashCode(), 2) == 1
+    val bar = if (alt) listOf(Color(0xFFFF9B7B), Color(0xFFE1514A)) else listOf(c.brand2, c.brand)
+    val (fg, bg) = if (alt) c.rec to c.recTint else c.brand to c.brandTint
+    BCard(
+        level = Depth.LIFT,
+        modifier = Modifier
+            .width(236.dp)
+            .press(scale = 0.97f, onClick = onClick),
+    ) {
+        Column(
+            Modifier
+                .drawBehind {
+                    drawRect(Brush.horizontalGradient(bar), size = Size(size.width, 4.dp.toPx()))
+                }
+                .padding(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                SmallTag(link.role, fg, bg)
+                Spacer(Modifier.weight(1f))
+                summary?.lastTime?.let { Text(Fmt.short(it), style = ts(12f, W7, num = true), color = c.ink3) }
+            }
+            Text(
+                link.caseNo,
+                style = ts(20f, W8, tracking = -0.015f, num = true),
+                color = c.ink,
+                modifier = Modifier.padding(top = 10.dp),
+            )
+            Text(
+                if (others.isEmpty()) "단독" else withJosa(others.joinToString(" · ") { store.displayName(it.number) }, "과", "와") + " 함께",
+                style = ts(12.5f, W4),
+                color = c.ink2,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 12.dp)) {
+                if (summary != null) {
+                    RecPill(summary.recCount)
+                    MsgPill(summary.smsCount)
+                } else {
+                    Box(
+                        Modifier
+                            .height(26.dp)
+                            .width(90.dp)
+                            .clip(RoundedCornerShape(13.dp))
+                            .background(c.chip),
+                    )
+                }
+            }
         }
     }
 }

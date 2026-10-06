@@ -1,7 +1,6 @@
 <resources>
-    <style name="Theme.BosangSearch" parent="android:Theme.Material.Light.NoActionBar">
+    <style name="Theme.BosangSearch" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/window_bg</item>
-        <!-- 카드 그림자를 시안처럼 조금 더 진하게 (색의 투명도로 다시 조절) -->
         <item name="android:ambientShadowAlpha">0.10</item>
         <item name="android:spotShadowAlpha">0.40</item>
     </style>

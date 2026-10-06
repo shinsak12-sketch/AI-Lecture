@@ -15,6 +15,11 @@ class Player(context: Context) {
 
     var currentKey by mutableStateOf<String?>(null)
         private set
+    /** 아래 떠 있는 재생 바에 보여줄 글 */
+    var title by mutableStateOf("")
+        private set
+    var subtitle by mutableStateOf("")
+        private set
     var isPlaying by mutableStateOf(false)
         private set
     var positionMs by mutableLongStateOf(0L)
@@ -25,16 +30,9 @@ class Player(context: Context) {
     var errorKey by mutableStateOf<String?>(null)
         private set
 
-    fun toggle(key: String, uri: Uri) {
-        val p = mp
-        if (currentKey == key && p != null) {
-            if (p.isPlaying) {
-                p.pause()
-                isPlaying = false
-            } else {
-                p.start()
-                isPlaying = true
-            }
+    fun toggle(key: String, uri: Uri, title: String, subtitle: String = "") {
+        if (currentKey == key && mp != null) {
+            playPause()
             return
         }
         release()
@@ -43,12 +41,14 @@ class Player(context: Context) {
             np.setDataSource(ctx, uri)
             np.setOnCompletionListener {
                 isPlaying = false
-                positionMs = 0L
+                positionMs = durationMs
             }
             np.prepare()
             np.start()
             mp = np
             currentKey = key
+            this.title = title
+            this.subtitle = subtitle
             durationMs = np.duration.toLong()
             positionMs = 0L
             isPlaying = true
@@ -59,9 +59,27 @@ class Player(context: Context) {
         }
     }
 
+    /** 재생 / 일시정지. 끝까지 들은 뒤라면 처음부터 */
+    fun playPause() {
+        val p = mp ?: return
+        if (p.isPlaying) {
+            p.pause()
+            isPlaying = false
+        } else {
+            if (positionMs >= durationMs - 300) {
+                p.seekTo(0)
+                positionMs = 0L
+            }
+            p.start()
+            isPlaying = true
+        }
+    }
+
     fun seekTo(ms: Long) {
-        mp?.seekTo(ms.toInt())
-        positionMs = ms
+        val p = mp ?: return
+        val t = ms.coerceIn(0L, durationMs)
+        p.seekTo(t.toInt())
+        positionMs = t
     }
 
     fun tick() {
