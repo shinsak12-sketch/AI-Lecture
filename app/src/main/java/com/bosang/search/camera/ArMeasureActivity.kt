@@ -11,7 +11,9 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,8 +25,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -38,6 +42,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.bosang.search.data.CasePhoto
+import com.bosang.search.data.Gallery
 import com.bosang.search.data.PhotoTags
 import com.bosang.search.data.Photos
 import com.bosang.search.data.Store
@@ -61,8 +66,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * AR 측정: 높이(바닥에서) · 길이(점과 점).
- * 가운데 조준점을 맞추고 [점 찍기], [사진 저장]하면 선 · 숫자가 함께 찍힌 사진이 사건에 들어간다.
+ * AR 측정: 길이 · 높이(직접 찍은 바닥 기준) · 원 · 네모 · 수리 배지.
+ * 점 두 개로 하나가 끝나고, 다시 찍으면 새 표시. [저장]하면 점선 · 숫자 · 배지가 함께 찍힌 사진이 사건(과 갤러리)에 들어간다.
  */
 class ArMeasureActivity : ComponentActivity() {
     private var session: Session? = null
@@ -71,13 +76,17 @@ class ArMeasureActivity : ComponentActivity() {
     private lateinit var overlay: MeasureOverlay
     private lateinit var renderer: ArRenderer
 
-    private var mode by mutableStateOf(MeasureMode.HEIGHT)
-    private var plate by mutableStateOf(false)
+    private var tool by mutableStateOf(Tool.LENGTH)
+    private var sticker by mutableStateOf(Stickers.ALL.first())
     private var message by mutableStateOf<String?>("폰을 천천히 좌우로 움직여 주변을 인식시켜 주세요")
     private var error by mutableStateOf<String?>(null)
-    private var floorFound by mutableStateOf(false)
-    private var pointCount by mutableIntStateOf(0)
+    private var hasBase by mutableStateOf(false)
+    private var markCount by mutableIntStateOf(0)
+    private var pending by mutableStateOf(false)
+    private var selected by mutableStateOf<Int?>(null)
+    private var selectedText by mutableStateOf<String?>(null)
     private var saved by mutableIntStateOf(0)
+    private var lastMissed = 0
 
     private val caseNo by lazy { intent.getStringExtra("case").orEmpty() }
     private val vehicle by lazy { intent.getStringExtra("vehicle") }
@@ -87,7 +96,10 @@ class ArMeasureActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        overlay = MeasureOverlay(this)
+        overlay = MeasureOverlay(this) { idx ->
+            selected = idx
+            overlay.selected = idx
+        }
         renderer = ArRenderer(
             sessionOf = { session },
             rotationOf = { rotation() },
@@ -108,10 +120,26 @@ class ArMeasureActivity : ComponentActivity() {
     @Suppress("DEPRECATION")
     private fun rotation(): Int = if (Build.VERSION.SDK_INT >= 30) display?.rotation ?: 0 else windowManager.defaultDisplay.rotation
 
+    private fun send(a: ArRenderer.Action) {
+        renderer.actions.add(a)
+    }
+
     private fun onSnapshot(s: ArSnapshot) {
         overlay.snap = s
-        floorFound = s.floorY != null
-        pointCount = s.points.size
+        hasBase = s.base != null
+        markCount = s.marks.size
+        val last = s.marks.lastOrNull()
+        pending = last != null && !last.complete
+        val sel = selected
+        if (sel != null && sel >= s.marks.size) {
+            selected = null
+            overlay.selected = null
+        }
+        selectedText = selected?.let { i -> s.marks.getOrNull(i)?.let { m -> m.tool.label + (MarkText.label(m, s.base?.get(1))?.let { " · $it" } ?: "") } }
+        if (s.missed != lastMissed) {
+            lastMissed = s.missed
+            Toast.makeText(this, "표면을 못 찾았어요. 바닥 · 틈 · 손상 부위처럼 무늬가 있는 곳을 겨눠 주세요", Toast.LENGTH_SHORT).show()
+        }
         message = when {
             !s.tracking -> when (s.reason) {
                 TrackingFailureReason.INSUFFICIENT_LIGHT -> "너무 어두워요. 밝은 곳에서 해 주세요"
@@ -119,11 +147,14 @@ class ArMeasureActivity : ComponentActivity() {
                 TrackingFailureReason.INSUFFICIENT_FEATURES -> "무늬가 있는 곳(바닥 · 바퀴 · 범퍼 틈)을 비춰 주세요"
                 else -> "폰을 천천히 좌우로 움직여 주변을 인식시켜 주세요"
             }
-            mode == MeasureMode.HEIGHT && s.floorY == null -> "먼저 차 옆 바닥을 비추며 천천히 움직여 주세요"
-            mode == MeasureMode.HEIGHT -> "조준점을 손상 위 · 아래 끝에 맞추고 [점 찍기]"
-            plate -> "번호판 왼쪽 끝 → 오른쪽 끝에 [점 찍기] (규격 52cm와 비교)"
-            s.points.isEmpty() -> "조준점을 시작점에 맞추고 [점 찍기]"
-            else -> "끝점(또는 다음 꺾이는 곳)에서 [점 찍기]"
+            tool == Tool.HEIGHT && s.base == null -> "① 바닥(타이어가 땅에 닿는 곳)에 조준점을 맞추고 [바닥 찍기]"
+            tool == Tool.HEIGHT -> "② 높이를 잴 곳(손상 위 · 아래 끝)마다 [점 찍기]"
+            tool == Tool.STICKER -> "배지를 고르고, 붙일 곳에 조준점을 맞춰 [붙이기]"
+            tool == Tool.PLATE -> if (pending) "번호판 오른쪽 끝에서 [점 찍기]" else "번호판 왼쪽 끝에서 [점 찍기] (규격 52cm와 비교)"
+            tool == Tool.CIRCLE -> if (pending) "가장자리에서 [점 찍기]" else "원의 가운데에서 [점 찍기]"
+            tool == Tool.RECT -> if (pending) "맞은편 모서리에서 [점 찍기]" else "한쪽 모서리에서 [점 찍기]"
+            pending -> "끝점에서 [점 찍기]"
+            else -> "시작점에서 [점 찍기]"
         }
     }
 
@@ -131,43 +162,50 @@ class ArMeasureActivity : ComponentActivity() {
         val summary = overlay.summary()
         lifecycleScope.launch {
             val bmp = glBitmap.copy(Bitmap.Config.ARGB_8888, true)
+            overlay.capturing = true
             overlay.draw(Canvas(bmp))
+            overlay.capturing = false
+            overlay.invalidate()
             val now = System.currentTimeMillis()
-            val store = Store.get(this@ArMeasureActivity)
-            val ref = withContext(Dispatchers.IO) {
+            val ctx = this@ArMeasureActivity
+            val store = Store.get(ctx)
+            val vText = PhotoTags.vehicleLabel(vehicle)?.let { v -> vehicle?.let { store.carNo(caseNo, it) }?.let { "$v $it" } ?: v }
+            val (ref, gallery) = withContext(Dispatchers.IO) {
                 PhotoStamp.draw(
-                    this@ArMeasureActivity,
+                    ctx,
                     bmp,
                     listOfNotNull(
-                        summary ?: "AR 측정",
-                        "AR 측정 · 참고값  |  " + PhotoStamp.dateText(now),
-                        listOfNotNull(
-                            caseNo.ifEmpty { null },
-                            PhotoTags.vehicleLabel(vehicle)?.let { v -> vehicle?.let { store.carNo(caseNo, it) }?.let { "$v $it" } ?: v },
-                            PhotoTags.stageLabel(stage),
-                        ).joinToString("  ·  ").ifEmpty { null },
+                        PhotoStamp.dateText(now),
+                        "AR 측정 · 참고값" + (summary?.let { "  |  $it" } ?: ""),
+                        listOfNotNull(caseNo.ifEmpty { null }, vText, PhotoTags.stageLabel(stage)).joinToString("  ·  ").ifEmpty { null },
                         place,
                     ),
                 )
-                Photos.saveBitmap(this@ArMeasureActivity, bmp, "ar")
+                val r = Photos.saveBitmap(ctx, bmp, "ar")
+                val g = if (store.galleryOn()) Photos.file(ctx, r)?.let { Gallery.save(ctx, it, caseNo, now) } else null
+                r to g
             }
-            if (caseNo.isNotEmpty()) {
-                store.addPhotos(
-                    listOf(
-                        CasePhoto(
-                            id = Photos.newId(), caseNo = caseNo, uri = ref, source = "camera", kind = "측정",
-                            takenAt = now, addedAt = now, vehicle = vehicle, stage = stage,
-                            measure = summary, place = place,
-                        ),
+            store.addPhotos(
+                listOf(
+                    CasePhoto(
+                        id = Photos.newId(), caseNo = caseNo, uri = ref, source = "camera", kind = "측정",
+                        takenAt = now, addedAt = now, vehicle = vehicle, stage = stage,
+                        measure = summary, place = place, gallery = gallery,
                     ),
-                )
-            }
+                ),
+            )
             saved++
-            Toast.makeText(this@ArMeasureActivity, if (summary != null) "저장했어요 · $summary" else "저장했어요", Toast.LENGTH_SHORT).show()
+            Toast.makeText(ctx, if (summary != null) "저장했어요 · $summary" else "저장했어요", Toast.LENGTH_SHORT).show()
         }
     }
 
-    @androidx.compose.runtime.Composable
+    private fun pickTool(t: Tool) {
+        if (t != tool) send(ArRenderer.Action.DropPending)
+        tool = t
+        overlay.tool = t
+    }
+
+    @Composable
     private fun Screen() {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
             AndroidView(factory = { surface }, modifier = Modifier.fillMaxSize())
@@ -183,63 +221,111 @@ class ArMeasureActivity : ComponentActivity() {
                     Column(Modifier.weight(1f)) {
                         Text("AR 측정 · 참고값", style = ts(12f, W7), color = Color.White.copy(alpha = 0.6f))
                         Text(
-                            listOfNotNull(caseNo.ifEmpty { null }, PhotoTags.vehicleLabel(vehicle), PhotoTags.stageLabel(stage)).joinToString(" · "),
+                            listOfNotNull(caseNo.ifEmpty { "사고번호 미정" }, PhotoTags.vehicleLabel(vehicle), PhotoTags.stageLabel(stage)).joinToString(" · "),
                             style = ts(14.5f, W8, num = true),
                             color = Color.White,
                         )
                     }
-                    if (floorFound) Pill("바닥 인식됨", true) {}
-                    if (saved > 0) {
-                        Spacer(Modifier.width(6.dp))
-                        Pill("${saved}장 저장", false) {}
-                    }
+                    if (saved > 0) Pill("${saved}장 저장", false) {}
                 }
                 (error ?: message)?.let {
                     Text(it, style = ts(13.5f, W7), color = if (error != null) Color(0xFFFF8A8A) else Color.White, modifier = Modifier.padding(top = 8.dp))
                 }
             }
 
-            // 아래: 모드 · 버튼
+            // 아래: 고른 표시 · 도구 · 버튼
             Column(
-                Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = 0.5f)).navigationBarsPadding().padding(14.dp),
+                Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = 0.5f)).navigationBarsPadding().padding(vertical = 12.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Pill("높이", mode == MeasureMode.HEIGHT) { setMode(MeasureMode.HEIGHT, false) }
-                    Pill("길이", mode == MeasureMode.LENGTH && !plate) { setMode(MeasureMode.LENGTH, false) }
-                    Pill("번호판으로 정확도 확인", plate) { setMode(MeasureMode.LENGTH, true) }
+                val sel = selected
+                if (sel != null) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 10.dp).fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp)).background(Color.White.copy(alpha = 0.14f)).padding(horizontal = 12.dp, vertical = 8.dp),
+                    ) {
+                        Text("고름: " + (selectedText ?: ""), style = ts(13.5f, W8), color = Color.White, modifier = Modifier.weight(1f))
+                        Pill("이것만 지우기", true) {
+                            send(ArRenderer.Action.Delete(sel))
+                            selected = null
+                            overlay.selected = null
+                        }
+                        Spacer(Modifier.width(6.dp))
+                        Pill("취소", false) {
+                            selected = null
+                            overlay.selected = null
+                        }
+                    }
+                }
+                if (tool == Tool.STICKER) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.padding(bottom = 10.dp).horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp),
+                    ) {
+                        Stickers.ALL.forEach { label ->
+                            val on = sticker == label
+                            Text(
+                                label,
+                                style = ts(13.5f, W8),
+                                color = Color.White,
+                                modifier = Modifier
+                                    .press(scale = 0.94f) { sticker = label }
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(if (on) Color(Stickers.color(label)) else Color.White.copy(alpha = 0.16f))
+                                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                            )
+                        }
+                    }
+                }
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 14.dp),
+                ) {
+                    Tool.entries.forEach { t -> Pill(if (t == Tool.PLATE) "번호판 확인" else t.label, tool == t) { pickTool(t) } }
                 }
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(top = 14.dp),
+                    modifier = Modifier.padding(top = 12.dp),
                 ) {
-                    Pill("되돌리기", false) { renderer.actions.add(ArRenderer.Action.Undo) }
-                    Pill("지우기", false) { renderer.actions.add(ArRenderer.Action.Clear) }
-                    GradientButton("점 찍기", height = 52.dp, radius = 26.dp) { renderer.actions.add(ArRenderer.Action.Add) }
-                    Pill(if (pointCount > 0) "사진 저장" else "그냥 저장", pointCount > 0) {
-                        renderer.actions.add(ArRenderer.Action.Capture)
+                    Pill("되돌리기", false) { send(ArRenderer.Action.Undo) }
+                    Pill("모두 지우기", false) {
+                        send(ArRenderer.Action.Clear)
+                        selected = null
+                        overlay.selected = null
+                    }
+                    when {
+                        tool == Tool.HEIGHT && !hasBase -> GradientButton("바닥 찍기", height = 52.dp, radius = 26.dp) { send(ArRenderer.Action.SetBase) }
+                        tool == Tool.STICKER -> GradientButton("붙이기", height = 52.dp, radius = 26.dp) { send(ArRenderer.Action.Tap(Tool.STICKER, sticker)) }
+                        else -> GradientButton("점 찍기", height = 52.dp, radius = 26.dp) { send(ArRenderer.Action.Tap(tool, null)) }
+                    }
+                    Pill("저장", markCount > 0) {
+                        selected = null
+                        overlay.selected = null
+                        send(ArRenderer.Action.DropPending)
+                        send(ArRenderer.Action.Capture)
                     }
                 }
+                if (tool == Tool.HEIGHT && hasBase) {
+                    Text(
+                        "바닥 다시 찍기",
+                        style = ts(12.5f, W8),
+                        color = Color.White.copy(alpha = 0.8f),
+                        modifier = Modifier.padding(top = 8.dp).press(scale = 0.94f) { send(ArRenderer.Action.ClearBase) }.padding(6.dp),
+                    )
+                }
                 Text(
-                    "측정값은 AR로 잰 참고값이에요. 반짝이는 차체보다 바닥 · 틈 · 손상 부위를 겨누면 잘 잡혀요.",
+                    "표시를 누르면 그것만 지울 수 있어요 · 측정값은 참고값",
                     style = ts(11.5f, W6),
                     color = Color.White.copy(alpha = 0.6f),
-                    modifier = Modifier.padding(top = 10.dp),
+                    modifier = Modifier.padding(top = 6.dp),
                 )
             }
         }
     }
 
-    private fun setMode(m: MeasureMode, plateCheck: Boolean) {
-        if (mode != m || plate != plateCheck) renderer.actions.add(ArRenderer.Action.Clear)
-        mode = m
-        plate = plateCheck
-        overlay.mode = m
-        overlay.plateCheck = plateCheck
-    }
-
-    @androidx.compose.runtime.Composable
+    @Composable
     private fun Pill(text: String, on: Boolean, onClick: () -> Unit) {
         Text(
             text,
@@ -254,7 +340,7 @@ class ArMeasureActivity : ComponentActivity() {
         )
     }
 
-    private val camPerm = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { ok ->
+    private val camPerm = registerForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         if (!ok) error = "카메라 권한이 필요해요"
     }
 

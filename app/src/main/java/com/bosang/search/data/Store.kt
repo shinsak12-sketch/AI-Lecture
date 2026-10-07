@@ -49,9 +49,20 @@ class Store private constructor(private val file: File) {
     private var stampOn = true
     private var placeOn = false
     private var authorName = ""
+    private var galleryOn = true
+    /** 사람 없이 만든 사건 (사진부터 찍고 사고번호를 넣은 경우) */
+    private val emptyCases = mutableSetOf<String>()
 
     // ---------- 조회 ----------
-    @Synchronized fun caseNos(): List<String> = links.map { it.caseNo }.distinct().sortedDescending()
+    @Synchronized fun caseNos(): List<String> = (links.map { it.caseNo } + emptyCases).distinct().sortedDescending()
+
+    @Synchronized fun caseExists(caseNo: String): Boolean = caseNo in emptyCases || links.any { it.caseNo == caseNo }
+
+    /** 사람 없이 사건만 만들기 */
+    fun createCase(caseNo: String) {
+        synchronized(this) { if (links.none { it.caseNo == caseNo }) emptyCases.add(caseNo) }
+        changed()
+    }
 
     @Synchronized fun linksForCase(caseNo: String): List<CaseLink> =
         links.filter { it.caseNo == caseNo }.sortedBy { it.createdAt }
@@ -104,6 +115,30 @@ class Store private constructor(private val file: File) {
     }
 
     // ---------- 사진 ----------
+    /** 사고번호를 아직 안 정한 사진 */
+    @Synchronized fun unassignedPhotos(): List<CasePhoto> = photos.filter { it.unassigned }.sortedByDescending { it.takenAt }
+
+    /** 사고번호 없는 사진들을 사건으로 옮김 (없는 사건이면 새로 만듦). 옮긴 사진들을 돌려줌 */
+    fun assignPhotos(ids: Collection<String>, caseNo: String): List<CasePhoto> {
+        val moved = ArrayList<CasePhoto>()
+        synchronized(this) {
+            if (links.none { it.caseNo == caseNo }) emptyCases.add(caseNo)
+            photos.replaceAll { p ->
+                if (p.id in ids && p.unassigned) p.copy(caseNo = caseNo).also { moved.add(it) } else p
+            }
+        }
+        changed()
+        return moved
+    }
+
+    /** 갤러리에도 저장 (기본: 켬) */
+    @Synchronized fun galleryOn(): Boolean = galleryOn
+
+    fun setGalleryOn(on: Boolean) {
+        synchronized(this) { galleryOn = on }
+        changed()
+    }
+
     @Synchronized fun photosForCase(caseNo: String): List<CasePhoto> =
         photos.filter { it.caseNo == caseNo }.sortedByDescending { it.takenAt }
 
@@ -288,7 +323,11 @@ class Store private constructor(private val file: File) {
     }
 
     fun removeLink(caseNo: String, number: String) {
-        synchronized(this) { links.removeAll { it.caseNo == caseNo && it.number == number } }
+        synchronized(this) {
+            links.removeAll { it.caseNo == caseNo && it.number == number }
+            // 사람을 다 빼도 사진이 있으면 사건은 남김
+            if (links.none { it.caseNo == caseNo } && photos.any { it.caseNo == caseNo }) emptyCases.add(caseNo)
+        }
         changed()
     }
 
@@ -300,6 +339,7 @@ class Store private constructor(private val file: File) {
             issues.replaceAll { if (it.caseNo == caseNo) it.copy(caseNo = null) else it }
             photos.removeAll { it.caseNo == caseNo }
             repairs.removeAll { it.caseNo == caseNo }
+            emptyCases.remove(caseNo)
             appts.replaceAll { if (it.caseNo == caseNo) it.copy(caseNo = null) else it }
             recent.remove("c:$caseNo")
         }
@@ -310,7 +350,7 @@ class Store private constructor(private val file: File) {
     fun clearAll() {
         synchronized(this) {
             links.clear(); names.clear(); recCache.clear(); recent.clear(); issues.clear(); photos.clear()
-            appts.clear(); repairs.clear()
+            appts.clear(); repairs.clear(); emptyCases.clear()
         }
         changed()
     }
@@ -361,7 +401,8 @@ class Store private constructor(private val file: File) {
         root.put("issues", JSONArray().apply { issues.forEach { put(it.toJson()) } })
         root.put("photos", JSONArray().apply { photos.forEach { put(it.toJson()) } })
         root.put("cars", JSONObject().apply { carNos.forEach { (k, v) -> put(k, v) } })
-        root.put("photoPrefs", JSONObject().put("stamp", stampOn).put("place", placeOn).put("author", authorName))
+        root.put("photoPrefs", JSONObject().put("stamp", stampOn).put("place", placeOn).put("author", authorName).put("gallery", galleryOn))
+        root.put("emptyCases", JSONArray(emptyCases.toList()))
         root.put("appts", JSONArray().apply { appts.forEach { put(it.toJson()) } })
         root.put("repairs", JSONArray().apply { repairs.forEach { put(it.toJson()) } })
         root.put("prefs", JSONObject().put("callAssist", callAssistOn).put("notices", showNoticesOn).put("quiet", JSONArray(quietNumbers.toList())))
@@ -405,7 +446,9 @@ class Store private constructor(private val file: File) {
                 stampOn = o.optBoolean("stamp", true)
                 placeOn = o.optBoolean("place", false)
                 authorName = o.optString("author")
+                galleryOn = o.optBoolean("gallery", true)
             }
+            root.optJSONArray("emptyCases")?.let { a -> for (i in 0 until a.length()) emptyCases.add(a.getString(i)) }
             root.optJSONArray("appts")?.let { a ->
                 for (i in 0 until a.length()) Appointment.fromJson(a.getJSONObject(i))?.let { appts.add(it) }
             }

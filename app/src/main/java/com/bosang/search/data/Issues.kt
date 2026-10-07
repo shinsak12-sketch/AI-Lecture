@@ -197,7 +197,12 @@ data class CasePhoto(
     val stamped: String? = null,
     /** 사진대지에 넣을 설명 */
     val caption: String? = null,
+    /** 폰 갤러리에 넣은 사본 (content://) */
+    val gallery: String? = null,
 ) {
+    /** 아직 사고번호를 안 정한 사진 */
+    val unassigned: Boolean get() = caseNo.isEmpty()
+
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id); put("c", caseNo); put("u", uri); put("s", source)
         kind?.let { put("k", it) }
@@ -210,6 +215,7 @@ data class CasePhoto(
         place?.let { put("pl", it) }
         stamped?.let { put("sp", it) }
         caption?.let { put("cp", it) }
+        gallery?.let { put("g", it) }
     }
 
     companion object {
@@ -231,6 +237,7 @@ data class CasePhoto(
             place = o.optString("pl").ifEmpty { null },
             stamped = o.optString("sp").ifEmpty { null },
             caption = o.optString("cp").ifEmpty { null },
+            gallery = o.optString("g").ifEmpty { null },
         )
     }
 }

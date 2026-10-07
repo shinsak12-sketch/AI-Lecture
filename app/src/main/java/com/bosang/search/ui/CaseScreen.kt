@@ -109,8 +109,9 @@ fun CaseScreen(
     val ver = store.version.intValue
     val links = remember(ver, caseNo) { store.linksForCase(caseNo) }
     LaunchedEffect(caseNo) { store.touchRecent("c:$caseNo") }
-    if (links.isEmpty()) {
-        // 마지막 사람을 빼거나 사건을 지우면 돌아감
+    val exists = remember(ver, caseNo) { store.caseExists(caseNo) }
+    if (links.isEmpty() && !exists) {
+        // 사건을 지우면 돌아감 (사람 없이 사진만 있는 사건은 그대로 보임)
         LaunchedEffect(Unit) { onBack() }
         Box(
             Modifier

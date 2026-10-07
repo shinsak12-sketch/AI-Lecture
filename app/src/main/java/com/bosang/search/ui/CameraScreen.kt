@@ -68,6 +68,7 @@ import com.bosang.search.camera.ArMeasureActivity
 import com.bosang.search.camera.Place
 import com.bosang.search.camera.PhotoStamp
 import com.bosang.search.data.CasePhoto
+import com.bosang.search.data.Gallery
 import com.bosang.search.data.PhotoTags
 import com.bosang.search.data.Photos
 import com.bosang.search.data.Store
@@ -94,13 +95,26 @@ private suspend fun cameraProvider(ctx: Context): ProcessCameraProvider = suspen
 
 /** 찍으면 바로 사건 사진으로: 차량 · 단계 꼬리표, 날짜 워터마크(선택), 위치(선택) */
 @Composable
-fun CameraScreen(store: Store, caseNo: String, onBack: () -> Unit) {
+fun CameraScreen(
+    store: Store,
+    initialCase: String?,
+    onBack: () -> Unit,
+    onOpenPhoto: (CasePhoto) -> Unit,
+    onOpenCase: (String) -> Unit,
+) {
     val ctx = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
     StatusBarIcons(lightContent = true)
-    BackHandler(onBack = onBack)
     val ver = store.version.intValue
+    // 빈 값 = 아직 사고번호를 안 정함 (찍고 나서 넣어도 됨)
+    var caseNo by remember { mutableStateOf(initialCase.orEmpty()) }
+    var askCase by remember { mutableStateOf(false) }
+    var askOnExit by remember { mutableStateOf(false) }
+    fun close() {
+        if (caseNo.isEmpty() && store.unassignedPhotos().isNotEmpty()) askOnExit = true else onBack()
+    }
+    BackHandler { close() }
 
     var granted by remember { mutableStateOf(Perms.granted(ctx, Manifest.permission.CAMERA)) }
     val camPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted = it }
@@ -191,17 +205,22 @@ fun CameraScreen(store: Store, caseNo: String, onBack: () -> Unit) {
                                 file,
                                 listOfNotNull(
                                     PhotoStamp.dateText(now),
-                                    listOfNotNull(caseNo, vehicleText(vNow), PhotoTags.stageLabel(sNow)).joinToString("  ·  "),
+                                    listOfNotNull(caseNo.ifEmpty { null }, vehicleText(vNow), PhotoTags.stageLabel(sNow)).joinToString("  ·  "),
                                     placeNow,
                                 ),
                             )
                         } else null
+                        val caseNow = caseNo
+                        // 갤러리에도: 날짜를 넣었으면 넣은 것
+                        val gallery = if (store.galleryOn()) withContext(Dispatchers.IO) {
+                            Gallery.save(ctx, stamped?.let { Photos.file(ctx, it) } ?: file, caseNow, now)
+                        } else null
                         store.addPhotos(
                             listOf(
                                 CasePhoto(
-                                    id = Photos.newId(), caseNo = caseNo, uri = Photos.ref(name), source = "camera",
+                                    id = Photos.newId(), caseNo = caseNow, uri = Photos.ref(name), source = "camera",
                                     kind = kindNow, takenAt = now, addedAt = now,
-                                    vehicle = vNow, stage = sNow, place = placeNow, stamped = stamped,
+                                    vehicle = vNow, stage = sNow, place = placeNow, stamped = stamped, gallery = gallery,
                                 ),
                             ),
                         )
@@ -215,6 +234,22 @@ fun CameraScreen(store: Store, caseNo: String, onBack: () -> Unit) {
                 }
             },
         )
+    }
+    // 폰을 가로로 돌리면 사진도 가로로 (화면 회전 잠금과 상관없이)
+    DisposableEffect(Unit) {
+        val listener = object : android.view.OrientationEventListener(ctx) {
+            override fun onOrientationChanged(deg: Int) {
+                if (deg == ORIENTATION_UNKNOWN) return
+                imageCapture.targetRotation = when (deg) {
+                    in 45 until 135 -> android.view.Surface.ROTATION_270
+                    in 135 until 225 -> android.view.Surface.ROTATION_180
+                    in 225 until 315 -> android.view.Surface.ROTATION_90
+                    else -> android.view.Surface.ROTATION_0
+                }
+            }
+        }
+        if (listener.canDetectOrientation()) listener.enable()
+        onDispose { listener.disable() }
     }
     LaunchedEffect(flashAnim) {
         if (flashAnim) {
@@ -257,11 +292,25 @@ fun CameraScreen(store: Store, caseNo: String, onBack: () -> Unit) {
                 .padding(top = 6.dp, bottom = 10.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 12.dp)) {
-                GlassCircle(Ic.x, "닫기", onClick = onBack)
+                GlassCircle(Ic.x, "닫기") { close() }
                 Spacer(Modifier.width(10.dp))
                 Column(Modifier.weight(1f)) {
                     Text("보상 카메라", style = ts(12f, W7), color = Color.White.copy(alpha = 0.6f))
-                    Text(caseNo, style = ts(16f, W8, num = true), color = Color.White)
+                    if (caseNo.isEmpty()) {
+                        Text(
+                            "사고번호 입력",
+                            style = ts(13.5f, W8),
+                            color = Color.Black,
+                            modifier = Modifier
+                                .padding(top = 2.dp)
+                                .press(scale = 0.94f) { askCase = true }
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Color(0xFFFFD43B))
+                                .padding(horizontal = 9.dp, vertical = 3.dp),
+                        )
+                    } else {
+                        Text(caseNo, style = ts(16f, W8, num = true), color = Color.White)
+                    }
                 }
                 CamToggle(if (stampOn) "날짜 표시" else "날짜 없음", stampOn) { store.setStamp(!stampOn) }
                 Spacer(Modifier.width(6.dp))
@@ -384,7 +433,7 @@ fun CameraScreen(store: Store, caseNo: String, onBack: () -> Unit) {
                 Box(Modifier.weight(1f)) {
                     val last = shot.maxByOrNull { it.addedAt }
                     if (last != null) {
-                        Box(Modifier.press(scale = 0.94f, onClick = onBack)) {
+                        Box(Modifier.press(scale = 0.94f) { onOpenPhoto(last) }) {
                             Thumb(Photos.shown(last), Modifier.size(54.dp).clip(RoundedCornerShape(12.dp)).border(2.dp, Color.White, RoundedCornerShape(12.dp)), px = 200)
                             Text(
                                 "${shot.size}",
@@ -412,12 +461,12 @@ fun CameraScreen(store: Store, caseNo: String, onBack: () -> Unit) {
                     if (mode == CamMode.DOC) Icon(Ic.list, null, tint = Color.White, modifier = Modifier.size(26.dp))
                 }
                 Box(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-                    Text(
-                        "완료",
-                        style = ts(15f, W8),
-                        color = Color.White,
-                        modifier = Modifier.press(scale = 0.94f, onClick = onBack).padding(10.dp),
-                    )
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.press(scale = 0.94f) {
+                        if (caseNo.isEmpty()) askCase = true else onOpenCase(caseNo)
+                    }.padding(6.dp)) {
+                        Icon(Ic.image, null, tint = Color.White, modifier = Modifier.size(24.dp))
+                        Text("사진함", style = ts(12f, W8), color = Color.White, modifier = Modifier.padding(top = 3.dp))
+                    }
                 }
             }
             Text(
@@ -431,6 +480,32 @@ fun CameraScreen(store: Store, caseNo: String, onBack: () -> Unit) {
                 modifier = Modifier.padding(top = 10.dp),
             )
         }
+    }
+
+    fun assign(newCase: String) {
+        val n = assignUnassigned(ctx, store, newCase)
+        CameraMemory.vehicle[newCase] = vehicle
+        CameraMemory.stage[newCase] = stage
+        caseNo = newCase
+        Toast.makeText(ctx, if (n == 0) "$newCase 사건으로 찍어요" else "$newCase 사건에 ${n}장 넣었어요", Toast.LENGTH_SHORT).show()
+    }
+    if (askCase) {
+        CaseNoInputDialog(store, onDismiss = { askCase = false }) {
+            askCase = false
+            assign(it)
+        }
+    }
+    if (askOnExit) {
+        val n = store.unassignedPhotos().size
+        AlertDialog(
+            onDismissRequest = { askOnExit = false },
+            containerColor = B.c.card,
+            shape = RoundedCornerShape(26.dp),
+            title = { Text("사고번호를 넣을까요?", style = ts(19f, W8), color = B.c.ink) },
+            text = { Text("사고번호 없는 사진이 ${n}장 있어요. 지금 넣으면 사건이 만들어지고 사진이 들어가요. 나중에 홈 화면에서 넣어도 돼요.", style = ts(14.5f, W4, lineHeight = 1.5f), color = B.c.ink2) },
+            confirmButton = { TextButton(onClick = { askOnExit = false; askCase = true }) { Text("지금 넣기", style = ts(15f, W8), color = B.c.brand) } },
+            dismissButton = { TextButton(onClick = { askOnExit = false; onBack() }) { Text("나중에", style = ts(15f, W7), color = B.c.ink2) } },
+        )
     }
 
     editCar?.let { key ->
@@ -504,4 +579,87 @@ fun CarNoDialog(title: String, initial: String, placeholder: String = "예: 12�
         confirmButton = { TextButton(onClick = { onSave(v) }) { Text("저장", style = ts(15f, W8), color = c.brand) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text("취소", style = ts(15f, W7), color = c.ink2) } },
     )
+}
+
+/** 사고번호 없는 사진 전부를 사건으로 (없으면 사건을 만듦). 옮긴 장수 */
+internal fun assignUnassigned(ctx: Context, store: Store, caseNo: String): Int {
+    val ids = store.unassignedPhotos().map { it.id }
+    // 미정일 때 넣은 차량번호도 함께
+    PhotoTags.VEHICLES.forEach { (k, _) ->
+        store.carNo("", k)?.let { n ->
+            if (store.carNo(caseNo, k) == null) store.setCarNo(caseNo, k, n)
+            store.setCarNo("", k, "")
+        }
+    }
+    val moved = store.assignPhotos(ids, caseNo)
+    Thread { moved.forEach { Gallery.move(ctx.applicationContext, it.gallery, caseNo) } }.start()
+    return moved.size
+}
+
+/** 사고번호 입력 (없는 번호면 새 사건) */
+@Composable
+fun CaseNoInputDialog(store: Store, onDismiss: () -> Unit, onDone: (String) -> Unit) {
+    val c = B.c
+    val thisYear = java.time.LocalDate.now().year
+    var year by remember { mutableStateOf(com.bosang.search.core.CaseNumber.year2(thisYear)) }
+    var serial by remember { mutableStateOf("") }
+    val caseNo = com.bosang.search.core.CaseNumber.of(year, serial)
+    val valid = com.bosang.search.core.CaseNumber.isValid(caseNo)
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) {
+        delay(250)
+        runCatching { focus.requestFocus() }
+    }
+    val existing = store.caseNos()
+    val picks = if (serial.isEmpty()) existing.take(4) else existing.filter { com.bosang.search.core.CaseNumber.digits(it).contains(serial) }.take(4)
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        BCard(radius = 26.dp, level = Depth.FLOAT, color = c.bg, modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(vertical = 18.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 20.dp)) {
+                    Text("사고번호", style = ts(19f, W8), color = c.ink, modifier = Modifier.weight(1f))
+                    YearChip(year, thisYear) { year = it }
+                }
+                Spacer(Modifier.height(12.dp))
+                OtpField(year = year, serial = serial, onSerial = { serial = it.filter { ch -> ch.isDigit() }.take(8) }, focus = focus)
+                if (picks.isNotEmpty()) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.padding(top = 12.dp).horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                    ) {
+                        Text("있는 사건", style = ts(12.5f, W7), color = c.ink2)
+                        picks.forEach { p ->
+                            Text(
+                                p,
+                                style = ts(13f, W8, num = true),
+                                color = c.brand,
+                                modifier = Modifier
+                                    .press(scale = 0.95f) {
+                                        year = p.substringBefore('-')
+                                        serial = p.substringAfter('-')
+                                    }
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(c.brandTint)
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                            )
+                        }
+                    }
+                }
+                Text(
+                    when {
+                        !valid -> "8자리를 넣어 주세요"
+                        store.caseExists(caseNo) -> "있는 사건에 넣어요"
+                        else -> "새 사건으로 만들어요. 사람은 나중에 연결해도 돼요"
+                    },
+                    style = ts(12.5f, W6),
+                    color = c.ink3,
+                    modifier = Modifier.padding(start = 22.dp, end = 22.dp, top = 12.dp),
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp)) {
+                    SoftButton("취소", modifier = Modifier.weight(1f), onClick = onDismiss)
+                    GradientButton("넣기", modifier = Modifier.weight(1f), enabled = valid, height = 48.dp, radius = 15.dp) { onDone(caseNo) }
+                }
+            }
+        }
+    }
 }

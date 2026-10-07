@@ -30,14 +30,16 @@ class ArSnapshot(
     val viewProj: FloatArray,
     val width: Int,
     val height: Int,
-    /** 찍은 점들 (월드 좌표) */
-    val points: List<FloatArray>,
-    /** 바닥 높이 (월드 y), 아직 모르면 null */
-    val floorY: Float?,
+    /** 남긴 표시들 (길이 · 높이 · 원 · 네모 · 스티커) */
+    val marks: List<MarkSnap>,
+    /** 사용자가 찍은 바닥 기준점 */
+    val base: FloatArray?,
     /** 화면 가운데가 닿는 곳 */
     val center: FloatArray?,
     /** 가운데가 닿은 곳이 어떤 면인지 */
     val centerKind: String?,
+    /** 점을 찍으려 했는데 표면을 못 찾은 횟수 (늘어나면 안내) */
+    val missed: Int,
 )
 
 /** ARCore 카메라 화면 그리기 + 점 찍기 · 바닥 찾기 (GL 스레드) */
@@ -48,15 +50,26 @@ class ArRenderer(
     private val onCapture: (Bitmap) -> Unit,
 ) : GLSurfaceView.Renderer {
     sealed interface Action {
-        data object Add : Action
+        /** 가운데에 점 (같은 도구의 덜 끝난 표시가 있으면 이어서, 아니면 새로) */
+        data class Tap(val tool: Tool, val label: String?) : Action
+        data object SetBase : Action
+        data object ClearBase : Action
+        /** 한 단계 되돌리기: 마지막 점 하나 */
         data object Undo : Action
+        /** 표시 하나 지우기 */
+        data class Delete(val index: Int) : Action
+        /** 덜 끝난 표시 버리기 (도구를 바꿀 때) */
+        data object DropPending : Action
         data object Clear : Action
         data object Capture : Action
     }
 
+    private class Mark(val tool: Tool, val label: String?, val anchors: MutableList<Anchor>, val axisX: FloatArray?, val axisZ: FloatArray?)
+
     val actions = ConcurrentLinkedQueue<Action>()
-    private val anchors = ArrayList<Anchor>()
-    private var floorY: Float? = null
+    private val marks = ArrayList<Mark>()
+    private var base: Anchor? = null
+    private var missed = 0
     private var width = 1
     private var height = 1
     private var geometryChanged = true
@@ -130,12 +143,6 @@ class ArRenderer(
 
         val camera = frame.camera
         val tracking = camera.trackingState == TrackingState.TRACKING
-        // 바닥: 위를 보는 수평면 중 가장 낮은 것
-        session.getAllTrackables(Plane::class.java)
-            .filter { it.trackingState == TrackingState.TRACKING && it.subsumedBy == null && it.type == Plane.Type.HORIZONTAL_UPWARD_FACING }
-            .minOfOrNull { it.centerPose.ty() }
-            ?.let { y -> floorY = floorY?.let { minOf(it, y) } ?: y }
-
         var centerHit: HitResult? = null
         var centerKind: String? = null
         if (tracking) {
@@ -160,11 +167,62 @@ class ArRenderer(
         while (true) {
             val a = actions.poll() ?: break
             when (a) {
-                Action.Add -> centerHit?.let { h -> runCatching { anchors.add(h.createAnchor()) } }
-                Action.Undo -> anchors.removeLastOrNull()?.detach()
+                is Action.Tap -> {
+                    val h = centerHit
+                    if (h == null) {
+                        missed++
+                        continue
+                    }
+                    val last = marks.lastOrNull()
+                    val anchor = runCatching { h.createAnchor() }.getOrNull() ?: continue
+                    if (last != null && last.tool == a.tool && last.anchors.size < a.tool.points) {
+                        last.anchors.add(anchor)
+                    } else {
+                        // 원을 그릴 면의 방향: 표면 · 평면이면 그 면, 아니면 모름
+                        val oriented = h.trackable is DepthPoint || h.trackable is Plane
+                        marks.add(
+                            Mark(
+                                a.tool, a.label, mutableListOf(anchor),
+                                if (oriented) h.hitPose.xAxis else null,
+                                if (oriented) h.hitPose.zAxis else null,
+                            ),
+                        )
+                    }
+                }
+                Action.SetBase -> {
+                    val h = centerHit
+                    if (h == null) missed++ else runCatching { h.createAnchor() }.getOrNull()?.let { na ->
+                        base?.detach()
+                        base = na
+                    }
+                }
+                Action.ClearBase -> {
+                    base?.detach()
+                    base = null
+                }
+                Action.Undo -> {
+                    val last = marks.lastOrNull()
+                    if (last != null) {
+                        last.anchors.removeLastOrNull()?.detach()
+                        if (last.anchors.isEmpty()) marks.removeAt(marks.lastIndex)
+                    } else {
+                        base?.detach()
+                        base = null
+                    }
+                }
+                is Action.Delete -> marks.getOrNull(a.index)?.let { m ->
+                    m.anchors.forEach { it.detach() }
+                    marks.remove(m)
+                }
+                Action.DropPending -> marks.lastOrNull()?.takeIf { it.anchors.size < it.tool.points }?.let { m ->
+                    m.anchors.forEach { it.detach() }
+                    marks.remove(m)
+                }
                 Action.Clear -> {
-                    anchors.forEach { it.detach() }
-                    anchors.clear()
+                    marks.forEach { m -> m.anchors.forEach { it.detach() } }
+                    marks.clear()
+                    base?.detach()
+                    base = null
                 }
                 Action.Capture -> onCapture(readPixels())
             }
@@ -174,12 +232,10 @@ class ArRenderer(
         camera.getViewMatrix(view, 0)
         val vp = FloatArray(16)
         Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
-        val points = anchors.filter { it.trackingState == TrackingState.TRACKING }.map { a ->
-            val p = a.pose
-            floatArrayOf(p.tx(), p.ty(), p.tz())
-        }
+        fun pos(a: Anchor): FloatArray = a.pose.let { p -> floatArrayOf(p.tx(), p.ty(), p.tz()) }
+        val snaps = marks.map { m -> MarkSnap(m.tool, m.label, m.anchors.map { pos(it) }, m.axisX, m.axisZ) }
         val center = centerHit?.hitPose?.let { floatArrayOf(it.tx(), it.ty(), it.tz()) }
-        onFrame(ArSnapshot(tracking, camera.trackingFailureReason, vp, width, height, points, floorY, center, centerKind))
+        onFrame(ArSnapshot(tracking, camera.trackingFailureReason, vp, width, height, snaps, base?.let { pos(it) }, center, centerKind, missed))
     }
 
     private fun drawBackground(frame: Frame) {

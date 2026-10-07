@@ -248,6 +248,15 @@ fun SettingsScreen(store: Store, data: PhoneData, resumeTick: Int) {
                 onClick = { store.setPlaceOn(!placeOn) },
             )
             Line()
+            val galleryOn = store.galleryOn()
+            SettingRow(
+                icon = Ic.image, fg = c.brand, bg = c.brandTint,
+                title = "갤러리에도 저장",
+                sub = "찍은 사진을 갤러리 '보상검색기/사고번호' 앨범에도 넣어요",
+                trailing = { Toggle(galleryOn) },
+                onClick = { store.setGalleryOn(!galleryOn) },
+            )
+            Line()
             var authorEdit by remember { mutableStateOf(false) }
             SettingRow(
                 icon = Ic.user, fg = c.ink2, bg = c.chip,

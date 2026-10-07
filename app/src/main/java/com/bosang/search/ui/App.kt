@@ -38,6 +38,7 @@ import com.bosang.search.data.RecordingIndex
 import com.bosang.search.data.Store
 import com.bosang.search.data.IssueKind
 import com.bosang.search.data.IssueSource
+import com.bosang.search.data.Photos
 import kotlinx.coroutines.delay
 
 sealed interface Screen {
@@ -57,7 +58,8 @@ sealed interface Screen {
     /** 약속: 새로 쓰면 id 없음 */
     data class ApptEdit(val apptId: String? = null, val caseNo: String? = null, val number: String? = null, val callTime: Long? = null) : Screen
     data class RepairEdit(val caseNo: String, val repairId: String? = null) : Screen
-    data class Camera(val caseNo: String) : Screen
+    /** 보상 카메라: 사건 없이 열면 찍고 나서 사고번호를 넣음 */
+    data class Camera(val caseNo: String?) : Screen
     data class Report(val caseNo: String, val photoIds: List<String> = emptyList()) : Screen
     data class Album(val caseNo: String) : Screen
     data class Photo(val ref: String, val photoId: String?) : Screen
@@ -187,6 +189,7 @@ fun App(resumeTick: Int) {
                     onOpenCase = { push(Screen.Case(it)) },
                     onOpenPerson = { push(Screen.Person(it)) },
                     onAppt = { push(Screen.ApptEdit(apptId = it)) },
+                    onCamera = { push(Screen.Camera(null)) },
                     onSettings = { tab(Tab.SETTINGS) },
                 )
                 Screen.Settings -> SettingsScreen(store = store, data = data, resumeTick = resumeTick)
@@ -248,7 +251,16 @@ fun App(resumeTick: Int) {
                     onBack = { pop() },
                 )
                 is Screen.RepairEdit -> RepairEditScreen(store = store, repairId = s.repairId, caseNo = s.caseNo, onBack = { pop() })
-                is Screen.Camera -> CameraScreen(store = store, caseNo = s.caseNo, onBack = { pop() })
+                is Screen.Camera -> CameraScreen(
+                    store = store,
+                    initialCase = s.caseNo,
+                    onBack = { pop() },
+                    onOpenPhoto = { p -> push(Screen.Photo(Photos.shown(p), p.id)) },
+                    onOpenCase = { cn ->
+                        UiMemory.caseKind[cn] = Kind.PHOTO
+                        if (stack.getOrNull(stack.size - 2) == Screen.Case(cn)) pop() else replaceTop(Screen.Case(cn))
+                    },
+                )
                 is Screen.Report -> ReportScreen(store = store, caseNo = s.caseNo, preselect = s.photoIds, onBack = { pop() })
                 is Screen.Album -> AlbumClassifyScreen(store = store, data = data, caseNo = s.caseNo, onBack = { pop() })
                 is Screen.Photo -> PhotoViewScreen(store = store, ref = s.ref, photoId = s.photoId, onBack = { pop() })

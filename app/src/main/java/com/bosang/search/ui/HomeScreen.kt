@@ -51,6 +51,7 @@ import com.bosang.search.core.Hangul
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.bosang.search.data.PhoneData
+import com.bosang.search.data.Photos
 import com.bosang.search.data.Player
 import com.bosang.search.data.RecordingIndex
 import com.bosang.search.data.Store
@@ -67,6 +68,7 @@ fun HomeScreen(
     onOpenCase: (String) -> Unit,
     onOpenPerson: (String) -> Unit,
     onAppt: (String) -> Unit,
+    onCamera: () -> Unit,
     onSettings: () -> Unit,
 ) {
     val c = B.c
@@ -123,6 +125,17 @@ fun HomeScreen(
         if (mode == HomeMode.CALLS) callLog = withContext(Dispatchers.IO) { data.calls(400).filter { it.number.isNotEmpty() } }
     }
 
+    // 사고번호 없이 찍은 사진 → 사고번호 넣기
+    var assignAsk by remember { mutableStateOf(false) }
+    if (assignAsk) {
+        CaseNoInputDialog(store, onDismiss = { assignAsk = false }) { cn ->
+            assignAsk = false
+            assignUnassigned(ctx, store, cn)
+            UiMemory.caseKind[cn] = Kind.PHOTO
+            onOpenCase(cn)
+        }
+    }
+
     val listState = rememberLazyListState()
     Box(Modifier.fillMaxSize()) {
     LazyColumn(
@@ -143,6 +156,7 @@ fun HomeScreen(
                         refresh++
                     },
                     onSettings = onSettings,
+                    onCamera = onCamera,
                     focus = searchFocus,
                 )
             }
@@ -176,6 +190,7 @@ fun HomeScreen(
                     modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = if (mode == HomeMode.CASES && featured != null) 4.dp else 16.dp),
                 )
             }
+            unassignedRow(store, onAssign = { assignAsk = true })
         }
         if (searching) {
             searchResults(query, store, sums, directory, onOpenCase, onOpenPerson)
@@ -222,6 +237,7 @@ private fun HomeHero(
     tall: Boolean,
     onRescan: () -> Unit,
     onSettings: () -> Unit,
+    onCamera: () -> Unit,
     focus: androidx.compose.ui.focus.FocusRequester,
 ) {
     var menu by remember { mutableStateOf(false) }
@@ -233,6 +249,8 @@ private fun HomeHero(
                 Text("보상검색기", style = ts(15f, W8, tracking = -0.01f), color = Color.White)
             },
             right = {
+                GlassCircle(Ic.camera, "보상 카메라", onClick = onCamera)
+                Spacer(Modifier.width(8.dp))
                 Box {
                     GlassCircle(Ic.more, "더보기") { menu = true }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
@@ -447,7 +465,7 @@ fun CaseCard(
 ) {
     val c = B.c
     val links = store.linksForCase(caseNo)
-    if (links.isEmpty()) return
+    if (links.isEmpty() && !store.caseExists(caseNo)) return
     val people = links.map { Who(it.number, store.nameOf(it.number)) }
     BCard(
         modifier
@@ -460,7 +478,8 @@ fun CaseCard(
                 AvatarStack(people, 28.dp)
             }
             Text(
-                links.joinToString(" · ") { store.displayName(it.number) + " " + it.role },
+                if (links.isEmpty()) "연결된 사람 없음 · 사진 ${store.photosForCase(caseNo).size}장"
+                else links.joinToString(" · ") { store.displayName(it.number) + " " + it.role },
                 style = ts(13.5f, W4),
                 color = c.ink2,
                 maxLines = 1,
@@ -819,6 +838,28 @@ fun PersonLine(store: Store, number: String, onClick: () -> Unit) {
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             links.take(2).forEach { GrayTag("${it.caseNo} ${it.role}") }
             if (links.size > 2) Text("외 ${links.size - 2}건", style = ts(11.5f, W7), color = c.ink3)
+        }
+    }
+}
+
+/** 사고번호 없이 찍은 사진이 있으면 맨 위에 */
+private fun androidx.compose.foundation.lazy.LazyListScope.unassignedRow(store: Store, onAssign: () -> Unit) {
+    val list = store.unassignedPhotos()
+    if (list.isEmpty()) return
+    item(key = "unassigned") {
+        val c = B.c
+        BCard(
+            Modifier.padding(start = 16.dp, end = 16.dp, top = 14.dp).fillMaxWidth().press(scale = 0.98f, onClick = onAssign),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(12.dp)) {
+                Thumb(Photos.shown(list.first()), Modifier.size(46.dp).clip(RoundedCornerShape(12.dp)), px = 200)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text("사고번호 없는 사진 ${list.size}장", style = ts(15f, W8), color = c.ink)
+                    Text("눌러서 사고번호를 넣으면 사건이 만들어져요", style = ts(12.5f, W4), color = c.ink2)
+                }
+                SmallTag("넣기", c.brand, c.brandTint)
+            }
         }
     }
 }
