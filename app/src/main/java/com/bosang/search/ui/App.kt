@@ -57,11 +57,19 @@ sealed interface Screen {
     /** 약속: 새로 쓰면 id 없음 */
     data class ApptEdit(val apptId: String? = null, val caseNo: String? = null, val number: String? = null, val callTime: Long? = null) : Screen
     data class RepairEdit(val caseNo: String, val repairId: String? = null) : Screen
+    data class Camera(val caseNo: String) : Screen
+    data class Report(val caseNo: String, val photoIds: List<String> = emptyList()) : Screen
     data class Album(val caseNo: String) : Screen
     data class Photo(val ref: String, val photoId: String?) : Screen
 }
 
 /** 앱 밖(통화 끝난 뒤 창)에서 열어 달라고 한 화면 */
+/** 화면을 오갈 때 기억해 둘 것 */
+object UiMemory {
+    /** 사건별로 보던 기록 분류 */
+    val caseKind = HashMap<String, Kind>()
+}
+
 object ExternalNav {
     val pending = mutableStateOf<Screen?>(null)
     /** pending 아래에 깔 화면 (예: 약속 → 그 위에 특이사항) */
@@ -203,6 +211,8 @@ fun App(resumeTick: Int) {
                     onAlbum = { push(Screen.Album(s.caseNo)) },
                     onAppt = { id, number, time -> push(Screen.ApptEdit(id, s.caseNo, number, time)) },
                     onRepair = { id -> push(Screen.RepairEdit(s.caseNo, id)) },
+                    onCamera = { push(Screen.Camera(s.caseNo)) },
+                    onReport = { ids -> push(Screen.Report(s.caseNo, ids)) },
                     onPhoto = { ref, id -> push(Screen.Photo(ref, id)) },
                 )
                 is Screen.Person -> PersonScreen(
@@ -238,6 +248,8 @@ fun App(resumeTick: Int) {
                     onBack = { pop() },
                 )
                 is Screen.RepairEdit -> RepairEditScreen(store = store, repairId = s.repairId, caseNo = s.caseNo, onBack = { pop() })
+                is Screen.Camera -> CameraScreen(store = store, caseNo = s.caseNo, onBack = { pop() })
+                is Screen.Report -> ReportScreen(store = store, caseNo = s.caseNo, preselect = s.photoIds, onBack = { pop() })
                 is Screen.Album -> AlbumClassifyScreen(store = store, data = data, caseNo = s.caseNo, onBack = { pop() })
                 is Screen.Photo -> PhotoViewScreen(store = store, ref = s.ref, photoId = s.photoId, onBack = { pop() })
             }

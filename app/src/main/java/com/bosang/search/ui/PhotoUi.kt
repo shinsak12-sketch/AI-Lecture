@@ -59,6 +59,8 @@ import com.bosang.search.data.AlbumPhoto
 import com.bosang.search.data.CasePhoto
 import com.bosang.search.data.PhoneData
 import com.bosang.search.data.Photos
+import androidx.compose.foundation.border
+import com.bosang.search.data.PhotoTags
 import com.bosang.search.data.Records
 import com.bosang.search.data.Store
 import kotlinx.coroutines.Dispatchers
@@ -90,7 +92,7 @@ fun PhotoAddDialog(caseNo: String, onCamera: () -> Unit, onAlbum: () -> Unit, on
                     Text(caseNo, style = ts(13f, W8, num = true), color = c.ink3)
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 14.dp)) {
-                    AddTile(Ic.camera, c.brand, c.brandTint, "촬영하기", "카메라로 찍으면 바로 이 사건에 들어가요", Modifier.weight(1f), onCamera)
+                    AddTile(Ic.camera, c.brand, c.brandTint, "보상 카메라", "차량 · 단계가 붙어서 바로 이 사건에 들어가요", Modifier.weight(1f), onCamera)
                     AddTile(Ic.list, c.ok, c.okTint, "앨범에서 분류", "이 사건 통화 앞뒤 사진부터 보여드려요", Modifier.weight(1f), onAlbum)
                 }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 14.dp, start = 4.dp)) {
@@ -118,48 +120,95 @@ private fun AddTile(icon: ImageVector, fg: Color, bg: Color, title: String, body
 
 // ───────────────────────── 사진 탭 ─────────────────────────
 
+enum class PhotoView(val label: String) { VEHICLE("차량별"), STAGE("단계별"), SOURCE("출처별") }
+
+/** 사진 탭에서 쓰는 것들 (사건 화면이 상태를 가짐) */
+class PhotoTabState(
+    val view: PhotoView,
+    val onView: (PhotoView) -> Unit,
+    val selected: Set<String>,
+    val onSelect: (CasePhoto) -> Unit,
+    val carNo: (String) -> String?,
+    val onCarNo: (String) -> Unit,
+    val onCamera: () -> Unit,
+    val onAlbum: () -> Unit,
+    val onReport: () -> Unit,
+)
+
 fun LazyListScope.photoSection(
     photos: List<CasePhoto>,
     nameOf: (String) -> String,
-    onAdd: () -> Unit,
+    tab: PhotoTabState,
     onOpen: (CasePhoto) -> Unit,
 ) {
+    item(key = "ph-actions") {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 16.dp)) {
+            PhotoAction(Ic.camera, "보상 카메라", true, Modifier.weight(1f), tab.onCamera)
+            PhotoAction(Ic.list, "앨범에서", false, Modifier.weight(1f), tab.onAlbum)
+            PhotoAction(Ic.share, "사진대지", false, Modifier.weight(1f), tab.onReport)
+        }
+    }
     if (photos.isEmpty()) {
         item(key = "ph-empty") {
             EmptyCard(
                 icon = Ic.image,
                 title = "사진이 없어요",
-                body = "찍거나 앨범에서 골라 넣어 주세요.\n문자로 받은 사진은 자동으로 들어와요.",
-                modifier = Modifier.padding(horizontal = 16.dp).press(scale = 0.98f, onClick = onAdd),
-                action = { GradientButton("사진 추가", icon = Ic.camera, height = 44.dp, radius = 14.dp, onClick = onAdd) },
+                body = "보상 카메라로 찍으면 차량 · 단계가 붙어서 들어와요.\n문자로 받은 사진은 자동으로 들어와요.",
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp),
             )
         }
         return
     }
-    item(key = "ph-add") {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.End) {
-            HeaderAction("사진 추가", icon = Ic.plusThin, onClick = onAdd)
+    item(key = "ph-views") {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp),
+        ) {
+            PhotoView.entries.forEach { v -> FilterPill(v.label, tab.view == v) { tab.onView(v) } }
+            Spacer(Modifier.weight(1f))
+            Text(if (tab.selected.isEmpty()) "길게 눌러 여러 장 고르기" else "${tab.selected.size}장 고름", style = ts(11.5f, W7), color = B.c.ink3)
         }
     }
-    listOf("mms" to "문자로 받음", "camera" to "촬영", "album" to "앨범에서").forEach { (src, title) ->
-        val list = photos.filter { it.source == src }
-        if (list.isEmpty()) return@forEach
-        item(key = "ph-h-$src") {
+    val groups: List<Triple<String, String, List<CasePhoto>>> = when (tab.view) {
+        PhotoView.VEHICLE -> (PhotoTags.VEHICLES.map { it.first } + "").map { k ->
+            val list = photos.filter { (it.vehicle ?: "") == k }
+            Triple(k, if (k.isEmpty()) "차량 미분류" else listOfNotNull(PhotoTags.vehicleLabel(k), tab.carNo(k)).joinToString(" · "), list)
+        }
+        PhotoView.STAGE -> (PhotoTags.STAGES.map { it.first } + "").map { k ->
+            Triple(k, if (k.isEmpty()) "단계 미분류" else PhotoTags.stageLabel(k) ?: k, photos.filter { (it.stage ?: "") == k })
+        }
+        PhotoView.SOURCE -> listOf("camera" to "촬영", "mms" to "문자로 받음", "album" to "앨범에서").map { (k, t) ->
+            Triple(k, t, photos.filter { it.source == k })
+        }
+    }.filter { it.third.isNotEmpty() }
+    groups.forEach { (key, title, list) ->
+        item(key = "ph-h-${tab.view}-$key") {
             val c = B.c
-            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 8.dp)) {
-                Text(title, style = ts(12.5f, W8), color = c.ink2)
-                if (src == "mms") {
-                    Spacer(Modifier.width(6.dp))
-                    SmallTag("자동", c.brand, c.brandTint)
-                }
-                Spacer(Modifier.weight(1f))
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 16.dp, top = 14.dp, bottom = 8.dp)) {
+                Text(title, style = ts(13.5f, W8, num = true), color = c.ink)
+                Spacer(Modifier.width(6.dp))
                 Text("${list.size}장", style = ts(12f, W7, num = true), color = c.ink3)
+                Spacer(Modifier.weight(1f))
+                if (tab.view == PhotoView.VEHICLE && key.isNotEmpty()) {
+                    HeaderAction(if (tab.carNo(key) == null) "차량번호" else "번호 수정", icon = Ic.edit) { tab.onCarNo(key) }
+                }
             }
         }
-        list.chunked(3).forEachIndexed { i, row ->
-            item(key = "ph-$src-$i") {
+        list.sortedByDescending { it.takenAt }.chunked(3).forEachIndexed { i, row ->
+            item(key = "ph-${tab.view}-$key-$i") {
                 Row(horizontalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 5.dp)) {
-                    row.forEach { p -> PhotoCell(p, nameOf, Modifier.weight(1f)) { onOpen(p) } }
+                    row.forEach { p ->
+                        PhotoCell(
+                            p,
+                            nameOf,
+                            tab.view,
+                            selected = p.id in tab.selected,
+                            selecting = tab.selected.isNotEmpty(),
+                            modifier = Modifier.weight(1f),
+                            onLong = { tab.onSelect(p) },
+                        ) { if (tab.selected.isNotEmpty()) tab.onSelect(p) else onOpen(p) }
+                    }
                     repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                 }
             }
@@ -168,11 +217,49 @@ fun LazyListScope.photoSection(
 }
 
 @Composable
-private fun PhotoCell(p: CasePhoto, nameOf: (String) -> String, modifier: Modifier, onClick: () -> Unit) {
-    Box(modifier.aspectRatio(1f).clip(RoundedCornerShape(12.dp)).press(scale = 0.96f, onClick = onClick)) {
+private fun PhotoAction(icon: ImageVector, text: String, primary: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val c = B.c
+    Row(
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .press(scale = 0.96f, onClick = onClick)
+            .height(44.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(if (primary) c.brand else c.card),
+    ) {
+        Icon(icon, null, tint = if (primary) Color.White else c.ink, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(text, style = ts(13.5f, W8), color = if (primary) Color.White else c.ink, maxLines = 1)
+    }
+}
+
+@Composable
+private fun PhotoCell(
+    p: CasePhoto,
+    nameOf: (String) -> String,
+    view: PhotoView,
+    selected: Boolean,
+    selecting: Boolean,
+    modifier: Modifier,
+    onLong: () -> Unit,
+    onClick: () -> Unit,
+) {
+    val c = B.c
+    Box(
+        modifier
+            .aspectRatio(1f)
+            .clip(RoundedCornerShape(12.dp))
+            .press(scale = 0.96f, onLongClick = onLong, onClick = onClick)
+            .then(if (selected) Modifier.border(3.dp, c.brand, RoundedCornerShape(12.dp)) else Modifier),
+    ) {
         Thumb(Photos.shown(p), Modifier.fillMaxSize())
-        val label = p.kind ?: p.from?.let(nameOf)
-        if (label != null) {
+        // 보이는 묶음이 아닌 쪽 꼬리표를 보여줌
+        val label = listOfNotNull(
+            if (view != PhotoView.STAGE) PhotoTags.stageLabel(p.stage) else PhotoTags.vehicleLabel(p.vehicle),
+            p.kind,
+        ).joinToString(" · ").ifEmpty { p.from?.let(nameOf) }
+        if (!label.isNullOrEmpty()) {
             Text(
                 label,
                 style = ts(10.5f, W8),
@@ -187,7 +274,28 @@ private fun PhotoCell(p: CasePhoto, nameOf: (String) -> String, modifier: Modifi
                     .padding(horizontal = 6.dp, vertical = 1.dp),
             )
         }
-        if (p.marked != null) {
+        if (!p.measure.isNullOrBlank()) {
+            Text(
+                p.measure,
+                style = ts(9.5f, W8, num = true),
+                color = Color.Black,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.align(Alignment.TopStart).padding(5.dp).clip(RoundedCornerShape(6.dp)).background(Color(0xE6FFD43B)).padding(horizontal = 5.dp, vertical = 1.dp),
+            )
+        }
+        if (selecting) {
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(5.dp)
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(if (selected) c.brand else Color(0x660C1222))
+                    .border(1.5.dp, Color.White, CircleShape),
+            ) { if (selected) Icon(Ic.check, null, tint = Color.White, modifier = Modifier.size(12.dp)) }
+        } else if (p.marked != null) {
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier.align(Alignment.TopEnd).padding(5.dp).size(18.dp).clip(RoundedCornerShape(6.dp)).background(Color(0x990C1222)),
@@ -533,6 +641,7 @@ fun PhotoViewScreen(store: Store, ref: String, photoId: String?, onBack: () -> U
                     confirmRemove = false
                     Photos.deleteFile(ctx, photo.marked)
                     if (photo.source == "camera") Photos.deleteFile(ctx, photo.uri)
+                    Photos.deleteFile(ctx, photo.stamped)
                     store.removePhoto(photo.id)
                     onBack()
                 }) { Text("빼기", style = ts(15f, W8), color = c.rec) }

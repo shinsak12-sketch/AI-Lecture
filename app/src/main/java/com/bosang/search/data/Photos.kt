@@ -40,8 +40,17 @@ object Photos {
     fun resolve(ctx: Context, ref: String): Uri =
         if (ref.startsWith(FILE)) Uri.fromFile(File(dir(ctx), ref.removePrefix(FILE))) else Uri.parse(ref)
 
-    /** 화면에 보여줄 것: 그림을 그렸으면 그린 것 */
-    fun shown(p: CasePhoto): String = p.marked ?: p.uri
+    /** 화면에 보여줄 것: 그림을 그렸으면 그린 것, 날짜를 넣었으면 넣은 것 */
+    fun shown(p: CasePhoto): String = p.marked ?: p.stamped ?: p.uri
+
+    /** 사진대지 · 고객용: 날짜 글씨 없는 깨끗한 것 (그림은 포함) */
+    fun clean(p: CasePhoto): String = p.marked ?: p.uri
+
+    /** 앱 안 파일 (없으면 null) */
+    fun file(ctx: Context, ref: String): File? =
+        if (ref.startsWith(FILE)) File(dir(ctx), ref.removePrefix(FILE)) else null
+
+    fun ref(name: String): String = FILE + name
 
     /** 카메라로 찍을 빈 파일 (값, 카메라에 넘길 주소) */
     fun newCameraTarget(ctx: Context): Pair<String, Uri> {

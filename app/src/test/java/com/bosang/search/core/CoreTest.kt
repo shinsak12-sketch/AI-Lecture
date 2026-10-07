@@ -317,3 +317,30 @@ class ScheduleRulesTest {
         assertEquals("정시", ReminderRule.label(0))
     }
 }
+
+class MeasureMathTest {
+    @Test fun 거리와_꺾은선() {
+        val a = floatArrayOf(0f, 0f, 0f)
+        val b = floatArrayOf(0.3f, 0.4f, 0f)
+        assertEquals(0.5, MeasureMath.distance(a, b), 1e-6)
+        val c = floatArrayOf(0.3f, 0.4f, 0.12f)
+        assertEquals(62, MeasureMath.cm(MeasureMath.pathLength(listOf(a, b, c))))
+    }
+
+    @Test fun 높이와_글자() {
+        val floor = -1.2f
+        assertEquals(52, MeasureMath.cm(MeasureMath.height(floatArrayOf(0f, -0.68f, -1f), floor)))
+        assertEquals(0.0, MeasureMath.height(floatArrayOf(0f, -1.5f, 0f), floor), 1e-9)
+        assertEquals("높이 52cm", MeasureMath.heightLabel(listOf(0.52)))
+        assertEquals("높이 42~61cm", MeasureMath.heightLabel(listOf(0.61, 0.42, 0.5)))
+        assertNull(MeasureMath.heightLabel(emptyList()))
+    }
+
+    @Test fun 번호판_확인과_겹침() {
+        assertEquals("양호", MeasureMath.plateCheck(53.1).second)
+        assertEquals("보통", MeasureMath.plateCheck(49.5).second)
+        assertEquals("부정확", MeasureMath.plateCheck(57.0).second)
+        assertEquals(48..58, MeasureMath.overlap(42..61, 48..58))
+        assertNull(MeasureMath.overlap(30..40, 48..58))
+    }
+}

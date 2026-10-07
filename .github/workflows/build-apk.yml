@@ -32,6 +32,11 @@ jobs:
         if: always()
         run: grep -h "<testsuite " app/build/test-results/testDebugUnitTest/*.xml | sed -E 's/.*name="([^"]+)" tests="([0-9]+)" skipped="([0-9]+)" failures="([0-9]+)" errors="([0-9]+)".*/\1 tests=\2 skipped=\3 failures=\4 errors=\5/'
 
+      - name: APK 권한 목록
+        run: |
+          AAPT=$(ls -d $ANDROID_HOME/build-tools/*/ | sort -V | tail -1)aapt
+          $AAPT dump permissions app/build/outputs/apk/debug/app-debug.apk || true
+
       - name: APK 이름 정리
         run: cp app/build/outputs/apk/debug/app-debug.apk bosang-search.apk
 

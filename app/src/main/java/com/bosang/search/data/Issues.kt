@@ -185,6 +185,18 @@ data class CasePhoto(
     val from: String? = null,
     /** 그 위에 그린 그림을 합친 파일 (앱 안 파일 이름) */
     val marked: String? = null,
+    /** 차량: own · other1 · other2 (PhotoTags.VEHICLES) */
+    val vehicle: String? = null,
+    /** 단계: site · in · teardown · out (PhotoTags.STAGES) */
+    val stage: String? = null,
+    /** AR 측정 요약 (예: 높이 42~61cm · 길이 23cm) */
+    val measure: String? = null,
+    /** 촬영 위치 (주소) */
+    val place: String? = null,
+    /** 날짜 워터마크를 넣은 사본 (앱 안 파일) */
+    val stamped: String? = null,
+    /** 사진대지에 넣을 설명 */
+    val caption: String? = null,
 ) {
     fun toJson(): JSONObject = JSONObject().apply {
         put("id", id); put("c", caseNo); put("u", uri); put("s", source)
@@ -192,6 +204,12 @@ data class CasePhoto(
         put("t", takenAt); put("a", addedAt)
         from?.let { put("f", it) }
         marked?.let { put("m", it) }
+        vehicle?.let { put("v", it) }
+        stage?.let { put("st", it) }
+        measure?.let { put("ms", it) }
+        place?.let { put("pl", it) }
+        stamped?.let { put("sp", it) }
+        caption?.let { put("cp", it) }
     }
 
     companion object {
@@ -207,6 +225,21 @@ data class CasePhoto(
             addedAt = o.optLong("a"),
             from = o.optString("f").ifEmpty { null },
             marked = o.optString("m").ifEmpty { null },
+            vehicle = o.optString("v").ifEmpty { null },
+            stage = o.optString("st").ifEmpty { null },
+            measure = o.optString("ms").ifEmpty { null },
+            place = o.optString("pl").ifEmpty { null },
+            stamped = o.optString("sp").ifEmpty { null },
+            caption = o.optString("cp").ifEmpty { null },
         )
     }
+}
+
+/** 사진 꼬리표: 차량 · 단계 */
+object PhotoTags {
+    val VEHICLES = listOf("own" to "우리 차", "other1" to "상대 차 1", "other2" to "상대 차 2")
+    val STAGES = listOf("site" to "현장", "in" to "입고", "teardown" to "분해", "out" to "출고")
+
+    fun vehicleLabel(key: String?): String? = VEHICLES.firstOrNull { it.first == key }?.second
+    fun stageLabel(key: String?): String? = STAGES.firstOrNull { it.first == key }?.second
 }

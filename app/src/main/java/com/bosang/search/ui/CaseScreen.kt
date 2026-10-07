@@ -1,5 +1,9 @@
 package com.bosang.search.ui
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.runtime.mutableStateListOf
+import com.bosang.search.data.PhotoTags
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -95,6 +99,8 @@ fun CaseScreen(
     onPhoto: (ref: String, photoId: String?) -> Unit,
     onAppt: (apptId: String?, number: String?, callTime: Long?) -> Unit,
     onRepair: (repairId: String?) -> Unit,
+    onCamera: () -> Unit,
+    onReport: (photoIds: List<String>) -> Unit,
 ) {
     val c = B.c
     val ctx = LocalContext.current
@@ -139,22 +145,17 @@ fun CaseScreen(
     }
     var photoAdd by remember { mutableStateOf(false) }
     var recordMenu by remember { mutableStateOf<TimelineItem?>(null) }
-    var pendingCam by rememberSaveable { mutableStateOf<String?>(null) }
-    val camLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        val ref = pendingCam
-        pendingCam = null
-        if (ok && ref != null && Photos.exists(ctx, ref)) {
-            val now = System.currentTimeMillis()
-            store.addPhotos(listOf(CasePhoto(Photos.newId(), caseNo, ref, "camera", null, now, now)))
-            Toast.makeText(ctx, "사건에 넣었어요", Toast.LENGTH_SHORT).show()
-        } else {
-            Photos.deleteFile(ctx, ref)
-        }
-    }
+    // 사진 탭: 보는 방식 · 여러 장 고르기 · 차량번호
+    var photoView by rememberSaveable { mutableStateOf(PhotoView.VEHICLE) }
+    val pickedPhotos = remember { mutableStateListOf<String>() }
+    var carEdit by remember { mutableStateOf<String?>(null) }
+    var tagPick by remember { mutableStateOf<String?>(null) }
     val imagePerm = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE
     val albumPerm = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { onAlbum() }
 
-    var kind by rememberSaveable { mutableStateOf(Kind.CALL) }
+    // 다른 화면(카메라 등)에 갔다 와도 보던 분류 그대로
+    var kind by rememberSaveable { mutableStateOf(UiMemory.caseKind[caseNo] ?: Kind.CALL) }
+    LaunchedEffect(kind) { UiMemory.caseKind[caseNo] = kind }
     var who by remember { mutableStateOf<String?>(null) }
     var options by remember { mutableStateOf<CaseLink?>(null) }
     var editing by remember { mutableStateOf<CaseLink?>(null) }
@@ -419,7 +420,21 @@ fun CaseScreen(
             }
         }
         if (kind == Kind.PHOTO) {
-            photoSection(photos, nameOf, onAdd = { photoAdd = true }) { onPhoto(Photos.shown(it), it.id) }
+            photoSection(
+                photos,
+                nameOf,
+                PhotoTabState(
+                    view = photoView,
+                    onView = { photoView = it },
+                    selected = pickedPhotos.toSet(),
+                    onSelect = { p -> if (p.id in pickedPhotos) pickedPhotos.remove(p.id) else pickedPhotos.add(p.id) },
+                    carNo = { v -> store.carNo(caseNo, v) },
+                    onCarNo = { carEdit = it },
+                    onCamera = onCamera,
+                    onAlbum = { if (Perms.granted(ctx, imagePerm)) onAlbum() else albumPerm.launch(imagePerm) },
+                    onReport = { onReport(emptyList()) },
+                ),
+            ) { onPhoto(Photos.shown(it), it.id) }
         } else {
             timeline(
                 items = shown,
@@ -448,6 +463,54 @@ fun CaseScreen(
         }
     }
     ScrollTopButton(listState, bottom = if (player.currentKey != null) 96.dp else 20.dp, modifier = Modifier.align(Alignment.BottomCenter))
+    // 사진 여러 장 골랐을 때
+    if (kind == Kind.PHOTO && pickedPhotos.isNotEmpty()) {
+        BCard(
+            level = Depth.FLOAT,
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(12.dp).fillMaxWidth(),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                Text("${pickedPhotos.size}장", style = ts(15f, W8, num = true), color = c.ink, modifier = Modifier.padding(end = 8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.weight(1f).horizontalScroll(rememberScrollState())) {
+                    FilterPill("차량", false) { tagPick = "vehicle" }
+                    FilterPill("단계", false) { tagPick = "stage" }
+                    FilterPill("사진대지", false) {
+                        onReport(pickedPhotos.toList())
+                        pickedPhotos.clear()
+                    }
+                }
+                Text("해제", style = ts(14f, W8), color = c.ink2, modifier = Modifier.press(scale = 0.94f) { pickedPhotos.clear() }.padding(8.dp))
+            }
+        }
+    }
+    }
+    BackHandler(enabled = pickedPhotos.isNotEmpty()) { pickedPhotos.clear() }
+
+    tagPick?.let { which ->
+        val list = if (which == "vehicle") PhotoTags.VEHICLES else PhotoTags.STAGES
+        OptionsDialog(
+            title = if (which == "vehicle") "어느 차량 사진인가요" else "어느 단계 사진인가요",
+            subtitle = "${pickedPhotos.size}장",
+            items = list.map { (k, label) ->
+                Option(if (which == "vehicle") listOfNotNull(label, store.carNo(caseNo, k)).joinToString(" ") else label, if (which == "vehicle") Ic.car else Ic.clock) {
+                    val ids = pickedPhotos.toSet()
+                    store.updatePhotos(allPhotos.filter { it.id in ids }.map { if (which == "vehicle") it.copy(vehicle = k) else it.copy(stage = k) })
+                    tagPick = null
+                    pickedPhotos.clear()
+                }
+            },
+            onDismiss = { tagPick = null },
+        )
+    }
+    carEdit?.let { v ->
+        CarNoDialog(
+            title = (PhotoTags.vehicleLabel(v) ?: "차량") + " 차량번호",
+            initial = store.carNo(caseNo, v).orEmpty(),
+            onDismiss = { carEdit = null },
+        ) {
+            store.setCarNo(caseNo, v, it)
+            carEdit = null
+        }
     }
 
     if (photoAdd) {
@@ -455,12 +518,7 @@ fun CaseScreen(
             caseNo = caseNo,
             onCamera = {
                 photoAdd = false
-                val (ref, uri) = Photos.newCameraTarget(ctx)
-                pendingCam = ref
-                runCatching { camLauncher.launch(uri) }.onFailure {
-                    pendingCam = null
-                    Toast.makeText(ctx, "카메라를 열 수 없어요", Toast.LENGTH_SHORT).show()
-                }
+                onCamera()
             },
             onAlbum = {
                 photoAdd = false

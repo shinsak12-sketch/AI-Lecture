@@ -228,6 +228,41 @@ fun SettingsScreen(store: Store, data: PhoneData, resumeTick: Int) {
             )
         }
 
+        Group("사진")
+        BCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
+            val stampOn = store.stamp()
+            SettingRow(
+                icon = Ic.calendar, fg = c.brand, bg = c.brandTint,
+                title = "사진에 날짜 넣기",
+                sub = "보상 카메라로 찍은 사진 오른쪽 아래에 날짜 · 사고번호를 넣어요 (원본은 따로 보관)",
+                trailing = { Toggle(stampOn) },
+                onClick = { store.setStamp(!stampOn) },
+            )
+            Line()
+            val placeOn = store.placeOn()
+            SettingRow(
+                icon = Ic.pin, fg = c.ok, bg = c.okTint,
+                title = "촬영 위치 남기기",
+                sub = if (placeOn && !com.bosang.search.camera.Place.granted(ctx)) "위치 권한이 없어요. 카메라에서 [위치]를 눌러 허용해 주세요" else "사진에 촬영한 곳 주소를 함께 남겨요",
+                trailing = { Toggle(placeOn) },
+                onClick = { store.setPlaceOn(!placeOn) },
+            )
+            Line()
+            var authorEdit by remember { mutableStateOf(false) }
+            SettingRow(
+                icon = Ic.user, fg = c.ink2, bg = c.chip,
+                title = "사진대지 작성자",
+                value = store.author().ifBlank { "없음" },
+                onClick = { authorEdit = true },
+            )
+            if (authorEdit) {
+                CarNoDialog(title = "사진대지 작성자", initial = store.author(), placeholder = "예: ○○손해보험 보상팀 홍길동", maxLen = 40, onDismiss = { authorEdit = false }) {
+                    store.setAuthor(it)
+                    authorEdit = false
+                }
+            }
+        }
+
         Group("통화녹음")
         BCard(Modifier.padding(horizontal = 16.dp).fillMaxWidth()) {
             val list = index

@@ -44,6 +44,11 @@ class Store private constructor(private val file: File) {
     private var callAssistOn = false
     private var showNoticesOn = false
     private val quietNumbers = mutableSetOf<String>()
+    /** 사건별 차량번호: "사고번호|own" → "12가3456" */
+    private val carNos = mutableMapOf<String, String>()
+    private var stampOn = true
+    private var placeOn = false
+    private var authorName = ""
 
     // ---------- 조회 ----------
     @Synchronized fun caseNos(): List<String> = links.map { it.caseNo }.distinct().sortedDescending()
@@ -122,6 +127,17 @@ class Store private constructor(private val file: File) {
         changed()
     }
 
+    fun updatePhotos(list: List<CasePhoto>) {
+        if (list.isEmpty()) return
+        synchronized(this) {
+            list.forEach { p ->
+                val i = photos.indexOfFirst { it.id == p.id }
+                if (i >= 0) photos[i] = p
+            }
+        }
+        changed()
+    }
+
     fun removePhoto(id: String) {
         synchronized(this) { photos.removeAll { it.id == id } }
         changed()
@@ -175,6 +191,38 @@ class Store private constructor(private val file: File) {
 
     fun deleteRepair(id: String) {
         synchronized(this) { repairs.removeAll { it.id == id } }
+        changed()
+    }
+
+    // ---------- 사진 ----------
+    @Synchronized fun carNo(caseNo: String, vehicle: String): String? = carNos["$caseNo|$vehicle"]
+
+    fun setCarNo(caseNo: String, vehicle: String, carNo: String) {
+        synchronized(this) { if (carNo.isBlank()) carNos.remove("$caseNo|$vehicle") else carNos["$caseNo|$vehicle"] = carNo.trim() }
+        changed()
+    }
+
+    /** 사진에 날짜 워터마크 넣기 (기본: 켬) */
+    @Synchronized fun stamp(): Boolean = stampOn
+
+    fun setStamp(on: Boolean) {
+        synchronized(this) { stampOn = on }
+        changed()
+    }
+
+    /** 사진에 촬영 위치 남기기 (기본: 끔) */
+    @Synchronized fun placeOn(): Boolean = placeOn
+
+    fun setPlaceOn(on: Boolean) {
+        synchronized(this) { placeOn = on }
+        changed()
+    }
+
+    /** 사진대지 작성자 */
+    @Synchronized fun author(): String = authorName
+
+    fun setAuthor(name: String) {
+        synchronized(this) { authorName = name.trim() }
         changed()
     }
 
@@ -312,6 +360,8 @@ class Store private constructor(private val file: File) {
         root.put("recent", JSONArray(recent))
         root.put("issues", JSONArray().apply { issues.forEach { put(it.toJson()) } })
         root.put("photos", JSONArray().apply { photos.forEach { put(it.toJson()) } })
+        root.put("cars", JSONObject().apply { carNos.forEach { (k, v) -> put(k, v) } })
+        root.put("photoPrefs", JSONObject().put("stamp", stampOn).put("place", placeOn).put("author", authorName))
         root.put("appts", JSONArray().apply { appts.forEach { put(it.toJson()) } })
         root.put("repairs", JSONArray().apply { repairs.forEach { put(it.toJson()) } })
         root.put("prefs", JSONObject().put("callAssist", callAssistOn).put("notices", showNoticesOn).put("quiet", JSONArray(quietNumbers.toList())))
@@ -349,6 +399,12 @@ class Store private constructor(private val file: File) {
             }
             root.optJSONArray("photos")?.let { a ->
                 for (i in 0 until a.length()) runCatching { CasePhoto.fromJson(a.getJSONObject(i)) }.getOrNull()?.let { photos.add(it) }
+            }
+            root.optJSONObject("cars")?.let { o -> o.keys().forEach { k -> carNos[k] = o.getString(k) } }
+            root.optJSONObject("photoPrefs")?.let { o ->
+                stampOn = o.optBoolean("stamp", true)
+                placeOn = o.optBoolean("place", false)
+                authorName = o.optString("author")
             }
             root.optJSONArray("appts")?.let { a ->
                 for (i in 0 until a.length()) Appointment.fromJson(a.getJSONObject(i))?.let { appts.add(it) }
